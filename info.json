@@ -3,7 +3,7 @@
   "name": "Spam Detector",
   "description": "Spam-Schutz für wiederholte Nachrichten mit ähnlichen Textmustern im Chat.",
   "authors": ["SCLI | Schussi"],
-  "homepage": "https://github.com/Chatterino/chatterino2/releases/tag/nightly-build",
+  "homepage": "https://github.com/SCLI-Schussi/SpamDetector",
   "tags": ["spam", "filter", "security"],
   "version": "1.2.0",
   "license": "MIT",
