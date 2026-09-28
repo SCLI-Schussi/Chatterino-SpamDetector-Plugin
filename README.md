@@ -11,50 +11,65 @@ Spam-Schutz für wiederholte Nachrichten mit ähnlichen Textmustern im Twitch-Ch
 
 ## 🚀 Features
 
-- **Mustererkennung (Levenshtein-Algorithmus):** Erkennt nicht nur identische Nachrichten, sondern auch Spams mit leicht geänderten Satzzeichen, Leerzeichen oder Groß-/Kleinschreibung.
-- **Einstellbarer Schwellenwert:** Warnt automatisch ab einer Ähnlichkeit von **75 %**.
-- **Flexible Steuerung:** Das Plugin startet standardmäßig im deaktivierten Zustand. Es kann pro Chat-Tab mit Befehlen (`/sg on` / `/sg off`) flexibel an- und ausgeschaltet werden.
-- **System-Warnungen:** Gibt bei erkanntem Spam direkt im Chat eine hervorgehobene Warnmeldung inklusive Prozentwert der Übereinstimmung aus.
+- **Ähnlichkeitserkennung:** Vergleicht Nachrichten mit Levenshtein-Distanz und Wortähnlichkeit, um wiederholte Nachrichten mit kleinen Abweichungen zu erkennen.
+- **Mehrere Erkennungskriterien:** Berücksichtigt wiederholte ähnliche Nachrichten sowie einen zusätzlichen Spam-Score für langsameres Spammen.
+- **Schwellenwerte:** Die Erkennung verwendet standardmäßig eine Ähnlichkeitsschwelle von **76 %** und einen Score-Grenzwert von **80**.
+- **Steuerung pro Chat:** Der Schutz lässt sich in jedem Chat-Tab einzeln aktivieren und deaktivieren.
+- **Chat-Warnungen:** Bei erkanntem Spam erscheint eine hervorgehobene Warnung mit Nutzername und Ähnlichkeitswert.
 
 ---
 
 ## 📥 Installation
 
 > [!IMPORTANT]
-> Dieses Plugin benötigt zwingend **Chatterino Nightly**, da es neuere Lua-API-Hooks (`on_message_appended`) verwendet.
+> Das Plugin benötigt **Chatterino Nightly**, da es den neueren Lua-API-Hook `on_message_appended` verwendet.
 
-1. **Chatterino Nightly nutzen:**
-   - Lade dir die neueste `chatterino-windows-x86-64-Qt-*.zip` von den offiziellen Chatterino Nightly Builds herunter und entpacke sie.
+### 1. Chatterino Nightly installieren
 
-2. **Plugins aktivieren:**
-   - Öffne Chatterino und drücke `Strg + P` (Einstellungen).
-   - Gehe zum Reiter **Plugins** und setze ein Häkchen bei **Enable plugins**.
+Lade einen aktuellen Chatterino-Nightly-Build von den offiziellen Nightly Builds herunter und entpacke ihn. Die reguläre stabile Version unterstützt den benötigten Plugin-Hook möglicherweise nicht.
 
-3. **Plugin-Ordner einrichten:**
-   - Drücke `Win + R`, gib folgenden Pfad ein und drücke Enter:
-     ```text
-     %APPDATA%\Chatterino2\Plugins
-     ```
-   - Erstelle dort einen Ordner namens `SpamDetector` und platziere die Projektdateien darin:
-     ```text
-     %APPDATA%\Chatterino2\Plugins\SpamDetector\
-     ├── info.json
-     ├── init.lua
-     ├── LICENSE
-     └── README.md
-     ```
+### 2. Plugins aktivieren
+
+1. Öffne Chatterino und drücke `Strg + P`, um die Einstellungen zu öffnen.
+2. Öffne den Reiter **Plugins** und aktiviere **Enable plugins**.
+
+### 3. Plugin herunterladen und installieren
+
+1. Öffne die [Releases](https://github.com/SCLI-Schussi/SpamDetector/releases) dieses Repositories.
+2. Lade unter **Assets** die Datei `SpamDetector.zip` herunter.
+3. Drücke `Win + R`, gib den folgenden Pfad ein und bestätige:
+
+   ```text
+   %APPDATA%\Chatterino2\Plugins
+   ```
+
+4. Entpacke `SpamDetector.zip` in diesen Ordner. Prüfe danach, dass die Dateien direkt im Plugin-Ordner liegen:
+
+   ```text
+   %APPDATA%\Chatterino2\Plugins\SpamDetector\
+   ├── info.json
+   ├── init.lua
+   ├── LICENSE
+   └── README.md
+   ```
+
+   Falls beim Entpacken ein zusätzlicher Unterordner `SpamDetector` entsteht, verschiebe den inneren Plugin-Ordner so, dass `init.lua` direkt unter dem oben gezeigten Pfad liegt.
 
 ---
 
 ## 🎮 Nutzung & Befehle
 
-Beim Starten oder Neuladen von Chatterino ist der Spam-Detector zunächst **deaktiviert**. Du kannst den Schutz in jedem Chat-Tab einzeln steuern:
+Der Spam-Detector wird für jeden Chat-Tab separat eingerichtet. Aktiviere ihn nach dem Laden des Plugins in jedem gewünschten Tab mit `/sg on` oder `/spamguard on`. Nach einem Neustart oder Neuladen des Plugins musst du das für die Tabs erneut ausführen.
 
 | Befehl | Beschreibung |
-| :--- | :--- |
-| `/sg on` oder `/spamguard on` | Aktiviert den Spam-Detector für den aktuellen Chat (`🛡️ Spam-Detector aktiviert!`) |
-| `/sg off` oder `/spamguard off` | Deaktiviert den Spam-Detector für den aktuellen Chat (`🛡️ Spam-Detector deaktiviert!`) |
-| `/sg` oder `/spamguard` | Zeigt den aktuellen Status des Spam-Detectors an |
+| --- | --- |
+| `/sg on` oder `/spamguard on` | Aktiviert den Spam-Detector im aktuellen Chat-Tab. |
+| `/sg off` oder `/spamguard off` | Deaktiviert den Spam-Detector im aktuellen Chat-Tab. |
+| `/sg` oder `/spamguard` | Schaltet den Spam-Detector im aktuellen Chat-Tab um. |
+| `/sg status` oder `/spamguard status` | Zeigt Status, erkannte Nutzer und Schwellenwerte an. |
+| `/sg clear` oder `/spamguard clear` | Setzt den Erkennungs-Cache des aktuellen Chat-Tabs zurück. |
+| `/sg test <text>` oder `/spamguard test <text>` | Übergibt einen Testtext an die Erkennung. |
+| `/sg help` oder `/spamguard help` | Zeigt eine kurze Befehlsübersicht im Chat an. |
 
 ---
 
