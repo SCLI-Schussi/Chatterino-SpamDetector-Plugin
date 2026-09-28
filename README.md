@@ -73,6 +73,19 @@ Der Spam-Detector wird für jeden Chat-Tab separat eingerichtet. Aktiviere ihn n
 
 ---
 
+## 📦 Release erstellen
+
+Maintainer können ein Release erstellen, indem sie die Versionsnummer in `info.json` aktualisieren, die Änderung nach GitHub pushen und anschließend einen passenden Versions-Tag erstellen. Version und Tag müssen übereinstimmen, zum Beispiel `1.2.1` und `v1.2.1`.
+
+```powershell
+git tag v1.2.1
+git push origin v1.2.1
+```
+
+GitHub Actions erstellt daraufhin automatisch das Release mit generierten Release-Notizen und der Datei `SpamDetector.zip`. Die ZIP-Datei enthält den Plugin-Ordner `SpamDetector` und kann direkt nach `%APPDATA%\Chatterino2\Plugins` entpackt werden.
+
+---
+
 ## 👤 Autor & Lizenz
 
 - **Autor:** [SCLI | Schussi](https://github.com/SCLI-Schussi)
