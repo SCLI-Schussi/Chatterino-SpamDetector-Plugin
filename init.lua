@@ -3,7 +3,7 @@
 -- ============================================================================
 
 local CONFIG = {
-    SIMILARITY_THRESHOLD    = 0.76,
+    SIMILARITY_THRESHOLD    = 0.75,
     REQUIRED_MATCHES        = 2,
     SCORE_TRIGGER_THRESHOLD = 80,
     WARNING_COOLDOWN_SECS   = 20,
