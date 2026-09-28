@@ -267,7 +267,7 @@ end
 
 local function process_incoming_message(channel, user_key, raw_text)
     if not channel or not user_key or not raw_text or raw_text == "" then return end
-    if raw_text:find("SPAM WARNUNG", 1, true) then return end
+    if raw_text:find("SPAM WARNING", 1, true) then return end
 
     local norm_text, word_set, word_count = normalize_text(raw_text)
     if norm_text == "" then return end
@@ -330,21 +330,21 @@ local function process_incoming_message(channel, user_key, raw_text)
             ustate.last_warning = now
             ustate.strikes      = ustate.strikes + 1
 
-            local trigger  = pattern_match and "Muster" or "Score"
+            local trigger  = pattern_match and "Pattern" or "Score"
             local percent  = math.floor(best_score * 100)
             local info_txt = string.format(
-                " (%d%% Ähnlichkeit | %d Treffer | %s): \"%s\"",
+                " (%d%% similarity | %d matches | %s): \"%s\"",
                 percent, similar_matches + 1, trigger, raw_text
             )
 
             -- Try to build a rich message with a clickable username (opens user popup)
             local ok_msg, warn_msg = pcall(function()
                 return c2.Message.new({
-                    message_text = "SPAM WARNUNG",
+                    message_text = "SPAM WARNING",
                     elements = {
                         {
                             type  = "text",
-                            text  = "[⚠️ SPAM WARNUNG ⚠️] ",
+                            text  = "[⚠️ SPAM WARNING ⚠️] ",
                             color = "system",
                         },
                         {
@@ -370,12 +370,12 @@ local function process_incoming_message(channel, user_key, raw_text)
                 if not ok_add then
                     -- Fallback if add_message fails
                     channel:add_system_message(
-                        "[⚠️ SPAM WARNUNG ⚠️] " .. user_key .. info_txt
+                        "[⚠️ SPAM WARNING ⚠️] " .. user_key .. info_txt
                     )
                 end
             else
                 channel:add_system_message(
-                    "[⚠️ SPAM WARNUNG ⚠️] " .. user_key .. info_txt
+                    "[⚠️ SPAM WARNING ⚠️] " .. user_key .. info_txt
                 )
             end
         end
@@ -402,9 +402,9 @@ local function register_channel(channel)
     state.enabled = true
 
     local chan_name  = get_channel_name(channel)
-    local chan_label = chan_name and ("#" .. chan_name) or "diesen Chat"
+    local chan_label = chan_name and ("#" .. chan_name) or "this chat"
     channel:add_system_message(string.format(
-        "🛡️ Spam-Detector aktiv · Überwachung für %s gestartet. (/sg status | /sg help)",
+        "🛡️ Spam Detector active · Monitoring started for %s. (/sg status | /sg help)",
         chan_label
     ))
 
@@ -451,11 +451,11 @@ local function handle_command(ctx)
 
     if arg == "off" or arg == "stop" or arg == "disable" then
         state.enabled = false
-        channel:add_system_message("🛡️ Spam-Detector DEAKTIVIERT.")
+        channel:add_system_message("🛡️ Spam Detector disabled.")
 
     elseif arg == "on" or arg == "start" or arg == "enable" then
         state.enabled = true
-        channel:add_system_message("🛡️ Spam-Detector AKTIVIERT.")
+        channel:add_system_message("🛡️ Spam Detector enabled.")
 
     elseif arg == "status" then
         local user_count    = 0
@@ -466,9 +466,9 @@ local function handle_command(ctx)
         end
         local status_str = state.enabled and "AKTIV" or "INAKTIV"
         local chan_name  = get_channel_name(channel)
-        local chan_label = chan_name and ("#" .. chan_name) or "Kanal"
+        local chan_label = chan_name and ("#" .. chan_name) or "Channel"
         channel:add_system_message(string.format(
-            "🛡️ Status: %s (%s) | Chatter: %d (Auffällig: %d) | Schwelle: %d%% | Score-Limit: %d",
+            "🛡️ Status: %s (%s) | Users: %d (Flagged: %d) | Threshold: %d%% | Score limit: %d",
             status_str, chan_label, user_count, flagged_count,
             math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
             CONFIG.SCORE_TRIGGER_THRESHOLD
@@ -476,7 +476,7 @@ local function handle_command(ctx)
 
     elseif arg == "clear" or arg == "reset" then
         state.by_user = {}
-        channel:add_system_message("🛡️ Spam-Detector: Cache zurückgesetzt.")
+        channel:add_system_message("🛡️ Spam Detector: detection history cleared.")
 
     elseif arg == "test" then
         local test_words = {}
@@ -487,13 +487,13 @@ local function handle_command(ctx)
         end
         local test_text = table.concat(test_words, " ")
         if test_text == "" then
-            test_text = "Dies ist eine Test-Nachricht fuer den Spam-Detector!"
+            test_text = "This is a test message for the Spam Detector!"
         end
 
         process_incoming_message(channel, "test_spammer", test_text)
         local ustate = state.by_user["test_spammer"]
         channel:add_system_message(string.format(
-            "🧪 test_spammer · Score: %d/%d · Historie: %d/%d Einträge",
+            "🧪 test_spammer · Score: %d/%d · History: %d/%d entries",
             ustate and math.floor(ustate.score) or 0,
             CONFIG.SCORE_TRIGGER_THRESHOLD,
             ustate and #ustate.history or 0,
@@ -502,15 +502,15 @@ local function handle_command(ctx)
 
     elseif arg == "help" then
         channel:add_system_message(
-            "🛡️ Befehle: /sg · /sg on · /sg off · /sg status · /sg clear · /sg test <text>"
+            "🛡️ Commands: /sg · /sg on · /sg off · /sg status · /sg clear · /sg test <text>"
         )
 
     else
         state.enabled = not state.enabled
         if state.enabled then
-            channel:add_system_message("🛡️ Spam-Detector AKTIVIERT. (/sg help für Befehle)")
+            channel:add_system_message("🛡️ Spam Detector enabled. (/sg help for commands)")
         else
-            channel:add_system_message("🛡️ Spam-Detector DEAKTIVIERT.")
+            channel:add_system_message("🛡️ Spam Detector disabled.")
         end
     end
 end

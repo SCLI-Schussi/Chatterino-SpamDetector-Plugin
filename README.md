@@ -1,8 +1,8 @@
 # 🛡️ Chatterino SpamDetector Plugin (v1.2.1)
 
-Spam-Schutz für wiederholte Nachrichten mit ähnlichen Textmustern im Twitch-Chat – als leichtgewichtiges Lua-Plugin für **Chatterino**.
+Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
 
-![Version](https://img.shields.io/badge/Version-1.2.0-blue)
+![Version](https://img.shields.io/badge/Version-1.2.1-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Chatterino](https://img.shields.io/badge/Chatterino-Nightly-orange)
 ![Language](https://img.shields.io/badge/Language-Lua-000080)
@@ -11,39 +11,39 @@ Spam-Schutz für wiederholte Nachrichten mit ähnlichen Textmustern im Twitch-Ch
 
 ## 🚀 Features
 
-- **Ähnlichkeitserkennung:** Vergleicht Nachrichten mit Levenshtein-Distanz und Wortähnlichkeit, um wiederholte Nachrichten mit kleinen Abweichungen zu erkennen.
-- **Mehrere Erkennungskriterien:** Berücksichtigt wiederholte ähnliche Nachrichten sowie einen zusätzlichen Spam-Score für langsameres Spammen.
-- **Schwellenwerte:** Die Erkennung verwendet standardmäßig eine Ähnlichkeitsschwelle von **76 %** und einen Score-Grenzwert von **80**.
-- **Steuerung pro Chat:** Der Schutz lässt sich in jedem Chat-Tab einzeln aktivieren und deaktivieren.
-- **Chat-Warnungen:** Bei erkanntem Spam erscheint eine hervorgehobene Warnung mit Nutzername und Ähnlichkeitswert.
+- **Similarity detection:** Compares messages using Levenshtein distance and word similarity to identify repeated messages with small variations.
+- **Multiple detection criteria:** Looks for repeated similar messages and uses an additional spam score to detect slower spam.
+- **Detection thresholds:** Uses a default similarity threshold of **76%** and a score threshold of **80**.
+- **Per-chat controls:** Enable or disable protection separately in each chat tab.
+- **Chat warnings:** Displays a highlighted warning with the user's name and similarity score when spam is detected.
 
 ---
 
 ## 📥 Installation
 
 > [!IMPORTANT]
-> Das Plugin benötigt **Chatterino Nightly**, da es den neueren Lua-API-Hook `on_message_appended` verwendet.
+> This plugin requires **Chatterino Nightly** because it uses the newer Lua API hook `on_message_appended`.
 
-### 1. Chatterino Nightly installieren
+### 1. Install Chatterino Nightly
 
-Lade einen aktuellen Chatterino-Nightly-Build von den offiziellen Nightly Builds herunter und entpacke ihn. Die reguläre stabile Version unterstützt den benötigten Plugin-Hook möglicherweise nicht.
+Download and extract a recent Chatterino Nightly build. The regular stable version may not support the required plugin hook.
 
-### 2. Plugins aktivieren
+### 2. Enable plugins
 
-1. Öffne Chatterino und drücke `Strg + P`, um die Einstellungen zu öffnen.
-2. Öffne den Reiter **Plugins** und aktiviere **Enable plugins**.
+1. Open Chatterino and press `Ctrl + P` to open the settings.
+2. Open the **Plugins** tab and enable **Enable plugins**.
 
-### 3. Plugin herunterladen und installieren
+### 3. Download and install the plugin
 
-1. Öffne die [Releases](https://github.com/SCLI-Schussi/SpamDetector/releases) dieses Repositories.
-2. Lade unter **Assets** die Datei `SpamDetector.zip` herunter.
-3. Drücke `Win + R`, gib den folgenden Pfad ein und bestätige:
+1. Open this repository's [Releases](https://github.com/SCLI-Schussi/SpamDetector/releases).
+2. Download `SpamDetector.zip` under **Assets**.
+3. Press `Win + R`, enter the following path, and confirm:
 
    ```text
    %APPDATA%\Chatterino2\Plugins
    ```
 
-4. Entpacke `SpamDetector.zip` in diesen Ordner. Prüfe danach, dass die Dateien direkt im Plugin-Ordner liegen:
+4. Extract `SpamDetector.zip` into this folder. Make sure the files are directly inside the plugin folder:
 
    ```text
    %APPDATA%\Chatterino2\Plugins\SpamDetector\
@@ -53,41 +53,41 @@ Lade einen aktuellen Chatterino-Nightly-Build von den offiziellen Nightly Builds
    └── README.md
    ```
 
-   Falls beim Entpacken ein zusätzlicher Unterordner `SpamDetector` entsteht, verschiebe den inneren Plugin-Ordner so, dass `init.lua` direkt unter dem oben gezeigten Pfad liegt.
+   If extraction creates an extra `SpamDetector` subfolder, move the inner plugin folder so that `init.lua` is directly inside the path shown above.
 
 ---
 
-## 🎮 Nutzung & Befehle
+## 🎮 Usage & Commands
 
-Der Spam-Detector wird für jeden Chat-Tab separat eingerichtet. Aktiviere ihn nach dem Laden des Plugins in jedem gewünschten Tab mit `/sg on` oder `/spamguard on`. Nach einem Neustart oder Neuladen des Plugins musst du das für die Tabs erneut ausführen.
+The Spam Detector is configured separately for each chat tab. After loading the plugin, activate it in each tab with `/sg on` or `/spamguard on`. Repeat this after restarting Chatterino or reloading the plugin.
 
-| Befehl | Beschreibung |
+| Command | Description |
 | --- | --- |
-| `/sg on` oder `/spamguard on` | Aktiviert den Spam-Detector im aktuellen Chat-Tab. |
-| `/sg off` oder `/spamguard off` | Deaktiviert den Spam-Detector im aktuellen Chat-Tab. |
-| `/sg` oder `/spamguard` | Schaltet den Spam-Detector im aktuellen Chat-Tab um. |
-| `/sg status` oder `/spamguard status` | Zeigt Status, erkannte Nutzer und Schwellenwerte an. |
-| `/sg clear` oder `/spamguard clear` | Setzt den Erkennungs-Cache des aktuellen Chat-Tabs zurück. |
-| `/sg test <text>` oder `/spamguard test <text>` | Übergibt einen Testtext an die Erkennung. |
-| `/sg help` oder `/spamguard help` | Zeigt eine kurze Befehlsübersicht im Chat an. |
+| `/sg on` or `/spamguard on` | Enables the Spam Detector in the current chat tab. |
+| `/sg off` or `/spamguard off` | Disables the Spam Detector in the current chat tab. |
+| `/sg` or `/spamguard` | Toggles the Spam Detector in the current chat tab. |
+| `/sg status` or `/spamguard status` | Shows the status, tracked users, and detection thresholds. |
+| `/sg clear` or `/spamguard clear` | Clears the detection history for the current chat tab. |
+| `/sg test <text>` or `/spamguard test <text>` | Sends a test message through the detector. |
+| `/sg help` or `/spamguard help` | Shows a brief command summary in chat. |
 
 ---
 
-## 📦 Release erstellen
+## 📦 Creating a release
 
-Maintainer können ein Release erstellen, indem sie die Versionsnummer in `info.json` aktualisieren, die Änderung nach GitHub pushen und anschließend einen passenden Versions-Tag erstellen. Version und Tag müssen übereinstimmen, zum Beispiel `1.2.1` und `v1.2.1`.
+Maintainers can create a release by updating the version in `info.json`, pushing the change to GitHub, and creating a matching version tag. The version and tag must match, for example `1.2.1` and `v1.2.1`.
 
 ```powershell
 git tag v1.2.1
 git push origin v1.2.1
 ```
 
-GitHub Actions erstellt daraufhin automatisch das Release mit generierten Release-Notizen und der Datei `SpamDetector.zip`. Die ZIP-Datei enthält den Plugin-Ordner `SpamDetector` und kann direkt nach `%APPDATA%\Chatterino2\Plugins` entpackt werden.
+GitHub Actions will automatically create the release with generated release notes and the `SpamDetector.zip` file. The ZIP contains the `SpamDetector` plugin folder and can be extracted directly into `%APPDATA%\Chatterino2\Plugins`.
 
 ---
 
-## 👤 Autor & Lizenz
+## 👤 Author & License
 
-- **Autor:** [SCLI | Schussi](https://github.com/SCLI-Schussi)
+- **Author:** [SCLI | Schussi](https://github.com/SCLI-Schussi)
 - **Repository:** [SCLI-Schussi/SpamDetector](https://github.com/SCLI-Schussi/SpamDetector)
-- **Lizenz:** Dieses Projekt steht unter der [MIT License](LICENSE).
+- **License:** This project is licensed under the [MIT License](LICENSE).
