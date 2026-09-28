@@ -1,4 +1,4 @@
-# 🛡️ Chatterino SpamDetector Plugin (v1.2.0)
+# 🛡️ Chatterino SpamDetector Plugin (v1.2.1)
 
 Spam-Schutz für wiederholte Nachrichten mit ähnlichen Textmustern im Twitch-Chat – als leichtgewichtiges Lua-Plugin für **Chatterino**.
 
