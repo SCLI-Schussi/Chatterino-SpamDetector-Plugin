@@ -330,12 +330,19 @@ local function process_incoming_message(channel, user_key, raw_text)
             ustate.last_warning = now
             ustate.strikes      = ustate.strikes + 1
 
-            local trigger  = pattern_match and "Pattern" or "Score"
-            local percent  = math.floor(best_score * 100)
-            local info_txt = string.format(
-                " (%d%% similarity | %d matches | %s): \"%s\"",
-                percent, similar_matches + 1, trigger, raw_text
-            )
+            local info_txt
+            if pattern_match then
+                info_txt = string.format(
+                    " (%d%% similarity | %d matches | Score %d/%d | Pattern): \"%s\"",
+                    math.floor(best_score * 100), similar_matches + 1,
+                    math.floor(ustate.score), CONFIG.SCORE_TRIGGER_THRESHOLD, raw_text
+                )
+            else
+                info_txt = string.format(
+                    " (Score %d/%d): \"%s\"",
+                    math.floor(ustate.score), CONFIG.SCORE_TRIGGER_THRESHOLD, raw_text
+                )
+            end
 
             -- Try to build a rich message with a clickable username (opens user popup)
             local ok_msg, warn_msg = pcall(function()
