@@ -333,13 +333,13 @@ local function process_incoming_message(channel, user_key, raw_text)
             local info_txt
             if pattern_match then
                 info_txt = string.format(
-                    " (%d%% similarity | %d matches | Score %d/%d | Pattern): \"%s\"",
+                    " (%d%% similarity | %d matches | Score %d | %d | Pattern): \"%s\"",
                     math.floor(best_score * 100), similar_matches + 1,
                     math.floor(ustate.score), CONFIG.SCORE_TRIGGER_THRESHOLD, raw_text
                 )
             else
                 info_txt = string.format(
-                    " (Score %d/%d): \"%s\"",
+                    " (Score %d | %d): \"%s\"",
                     math.floor(ustate.score), CONFIG.SCORE_TRIGGER_THRESHOLD, raw_text
                 )
             end
