@@ -20,13 +20,23 @@ local registered_channels = {}
 -- NORMALIZATION & NOISE FILTER
 -- ============================================================================
 
+local function strip_mention_tokens(text)
+    if type(text) ~= "string" then return "" end
+    local s = text:lower()
+    s = s:gsub("@[%w_]+", " ")
+    s = s:gsub("[%c%p]", " ")
+    s = s:gsub("%s+", " ")
+    s = s:gsub("^%s+", "")
+    s = s:gsub("%s+$", "")
+    return s
+end
+
 local function normalize_text(text)
     if type(text) ~= "string" or text == "" then
         return "", {}, 0
     end
 
-    local s = text:lower()
-    s = s:gsub("[%c%p]", " ")
+    local s = strip_mention_tokens(text)
     s = s:gsub("%s*[%#%-%_]?%d+$", "")
     s = s:gsub("(.)%1%1+", "%1%1")
     s = s:gsub("%s+", " ")
@@ -111,15 +121,19 @@ end
 
 local function calculate_similarity(e1, e2)
     if not e1 or not e2 then return 0.0 end
-    if e1.text == e2.text   then return 1.0 end
+    if e1.text == e2.text then return 1.0 end
+
+    local stripped1 = strip_mention_tokens(e1.text)
+    local stripped2 = strip_mention_tokens(e2.text)
+    if stripped1 ~= "" and stripped1 == stripped2 then return 1.0 end
 
     local max_len  = math.max(e1.len, e2.len)
     if max_len < CONFIG.MIN_MESSAGE_LENGTH then return 0.0 end
 
-    local len_diff = math.abs(e1.len - e2.len)
-    if (len_diff / max_len) > 0.45 then return 0.0 end
-
     local jaccard     = token_jaccard(e1.word_set, e1.word_count, e2.word_set, e2.word_count)
+    local len_diff    = math.abs(e1.len - e2.len)
+    if (len_diff / max_len) > 0.60 and jaccard < 0.55 then return 0.0 end
+
     local max_dist    = math.max(1, math.floor(max_len * 0.35))
     local dist        = byte_levenshtein(e1.text, e2.text, max_dist)
 
