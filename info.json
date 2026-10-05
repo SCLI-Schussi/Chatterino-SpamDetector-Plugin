@@ -5,7 +5,7 @@
   "authors": ["SCLI | Schussi"],
   "homepage": "https://github.com/SCLI-Schussi/SpamDetector",
   "tags": ["spam", "filter", "security"],
-  "version": "1.2.6",
+  "version": "1.2.7",
   "license": "MIT",
   "permissions": []
 }
