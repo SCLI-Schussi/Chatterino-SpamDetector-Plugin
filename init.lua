@@ -3,12 +3,12 @@
 -- ============================================================================
 
 local CONFIG = {
-    SIMILARITY_THRESHOLD    = 0.75,
+    SIMILARITY_THRESHOLD    = 0.70,
     REQUIRED_MATCHES        = 2,
     SCORE_TRIGGER_THRESHOLD = 80,
     WARNING_COOLDOWN_SECS   = 20,
     HISTORY_LIMIT           = 8,
-    MIN_MESSAGE_LENGTH      = 2,
+    MIN_MESSAGE_LENGTH      = 3,
     CLEANUP_INTERVAL        = 80,
     USER_INACTIVE_TIMEOUT   = 300,
 }
@@ -20,9 +20,21 @@ local registered_channels = {}
 -- NORMALIZATION & NOISE FILTER
 -- ============================================================================
 
+local function is_pure_laughter(text)
+    if type(text) ~= "string" or text == "" then return false end
+    local s = text:lower():gsub("[%s%p%c]", "")
+    if #s < 2 then return false end
+    if #s >= 3 and s:gsub("[ha]", "") == "" then return true end
+    if #s >= 3 and s:gsub("[he]", "") == "" then return true end
+    if #s >= 2 and s:gsub("[xd]", "") == "" then return true end
+    if #s >= 3 and s:gsub("[ja]", "") == "" then return true end
+    return false
+end
+
 local function strip_mention_tokens(text)
     if type(text) ~= "string" then return "" end
-    local s = text:lower()
+    local s = text:gsub("\226\128[\139\140\141]", ""):gsub("\239\187\191", ""):gsub("\194\173", "")
+    s = s:lower()
     s = s:gsub("@[%w_]+", " ")
     s = s:gsub("[%c%p]", " ")
     s = s:gsub("%s+", " ")
@@ -47,36 +59,21 @@ local function normalize_text(text)
         return "", {}, 0
     end
 
-    local word_set   = {}
+    local words = {}
     local word_count = 0
     for word in s:gmatch("%S+") do
         if #word >= 2 then
-            word_set[word] = (word_set[word] or 0) + 1
-            word_count     = word_count + 1
+            word_count = word_count + 1
+            words[word_count] = word
         end
     end
 
-    return s, word_set, word_count
+    return s, words, word_count
 end
 
 -- ============================================================================
--- SIMILARITY (Levenshtein + Jaccard)
+-- SIMILARITY (Levenshtein + Fuzzy Token Metrics & Containment)
 -- ============================================================================
-
-local function token_jaccard(set1, count1, set2, count2)
-    if count1 == 0 or count2 == 0 then return 0.0 end
-
-    local intersection = 0
-    for word, ca in pairs(set1) do
-        local cb = set2[word]
-        if cb then
-            intersection = intersection + math.min(ca, cb)
-        end
-    end
-
-    local union = count1 + count2 - intersection
-    return union > 0 and (intersection / union) or 0.0
-end
 
 local function byte_levenshtein(s1, s2, max_dist)
     local len1, len2 = #s1, #s2
@@ -84,7 +81,7 @@ local function byte_levenshtein(s1, s2, max_dist)
     if len2 == 0 then return len1 end
 
     if len1 > len2 then
-        s1, s2   = s2, s1
+        s1, s2     = s2, s1
         len1, len2 = len2, len1
     end
 
@@ -98,9 +95,9 @@ local function byte_levenshtein(s1, s2, max_dist)
     for j = 0, len1 do prev_row[j] = j end
 
     for i = 1, len2 do
-        curr_row[0]    = i
-        local b2_char  = b2[i]
-        local row_min  = i
+        curr_row[0]   = i
+        local b2_char = b2[i]
+        local row_min = i
 
         for j = 1, len1 do
             local cost = (b1[j] == b2_char) and 0 or 1
@@ -119,44 +116,100 @@ local function byte_levenshtein(s1, s2, max_dist)
     return prev_row[len1]
 end
 
+local function word_match(w1, w2)
+    if w1 == w2 then return true end
+    local l1, l2 = #w1, #w2
+    if l1 >= 4 and l2 >= 4 and math.abs(l1 - l2) <= 1 then
+        return byte_levenshtein(w1, w2, 1) <= 1
+    end
+    return false
+end
+
+local function token_metrics(words1, words2)
+    local c1 = #words1
+    local c2 = #words2
+    if c1 == 0 or c2 == 0 then return 0.0, 0.0 end
+
+    local matches = 0
+    local used2 = {}
+    for i = 1, c1 do
+        local w1 = words1[i]
+        for j = 1, c2 do
+            if not used2[j] and word_match(w1, words2[j]) then
+                matches = matches + 1
+                used2[j] = true
+                break
+            end
+        end
+    end
+
+    local union = c1 + c2 - matches
+    local jaccard = union > 0 and (matches / union) or 0.0
+
+    -- Containment is ONLY valid for multi-word phrases (at least 3 words match)
+    local min_c = math.min(c1, c2)
+    local containment = jaccard
+    if matches >= 3 and min_c >= 3 then
+        containment = matches / min_c
+    end
+
+    return jaccard, containment
+end
+
 local function calculate_similarity(e1, e2)
     if not e1 or not e2 then return 0.0 end
+
+    -- Pure laughter never matches non-laughter
+    if e1.is_laughter ~= e2.is_laughter then
+        return 0.0
+    end
+
+    -- Pure laughter messages only match if sent in rapid succession (< 15 seconds)
+    if e1.is_laughter and e2.is_laughter then
+        local gap = math.abs((e1.timestamp or 0) - (e2.timestamp or 0))
+        if gap > 15 then
+            return 0.0
+        end
+    end
+
     if e1.text == e2.text then return 1.0 end
 
     local stripped1 = strip_mention_tokens(e1.text)
     local stripped2 = strip_mention_tokens(e2.text)
     if stripped1 ~= "" and stripped1 == stripped2 then return 1.0 end
 
-    local max_len  = math.max(e1.len, e2.len)
+    local max_len = math.max(e1.len, e2.len)
     if max_len < CONFIG.MIN_MESSAGE_LENGTH then return 0.0 end
 
-    local jaccard     = token_jaccard(e1.word_set, e1.word_count, e2.word_set, e2.word_count)
-    local len_diff    = math.abs(e1.len - e2.len)
-    if (len_diff / max_len) > 0.60 and jaccard < 0.55 then return 0.0 end
+    local jaccard, containment = token_metrics(e1.words, e2.words)
+    local token_sim = (jaccard * 0.5) + (containment * 0.5)
 
-    local max_dist    = math.max(1, math.floor(max_len * 0.35))
-    local dist        = byte_levenshtein(e1.text, e2.text, max_dist)
+    local max_dist = math.max(1, math.floor(max_len * 0.35))
+    local dist = byte_levenshtein(e1.text, e2.text, max_dist)
 
-    if dist > max_dist then return 0.0 end
+    if dist <= max_dist then
+        local dist_sim = 1.0 - (dist / math.max(1, max_len))
+        local min_len  = math.min(e1.len, e2.len)
+        local prefix_len = 0
 
-    local dist_sim    = 1.0 - (dist / math.max(1, max_len))
-    local min_len     = math.min(e1.len, e2.len)
-    local prefix_len  = 0
-
-    for i = 1, min_len do
-        if string.byte(e1.text, i) == string.byte(e2.text, i) then
-            prefix_len = prefix_len + 1
-        else
-            break
+        for i = 1, min_len do
+            if string.byte(e1.text, i) == string.byte(e2.text, i) then
+                prefix_len = prefix_len + 1
+            else
+                break
+            end
         end
+
+        local prefix_bonus = (prefix_len / math.max(1, max_len)) * 0.15
+        local combined     = (dist_sim * 0.55) + (token_sim * 0.45) + prefix_bonus
+        if combined < 0.0 then return 0.0 end
+        if combined > 1.0 then return 1.0 end
+        return combined
+    elseif token_sim >= 0.60 then
+        return token_sim
+    else
+        return 0.0
     end
-
-    local prefix_bonus = (prefix_len / math.max(1, max_len)) * 0.15
-    local combined     = (dist_sim * 0.7) + (jaccard * 0.3) + prefix_bonus
-
-    if combined < 0.0 then return 0.0 end
-    if combined > 1.0 then return 1.0 end
-    return combined
 end
 
 -- ============================================================================
@@ -218,6 +271,8 @@ local function get_user_state(state, user_key)
             last_seen    = get_current_timestamp(),
             last_warning = 0,
             strikes      = 0,
+            user_color   = nil,
+            display_name = nil,
             history      = {},
         }
     end
@@ -279,11 +334,12 @@ end
 -- SPAM DETECTION
 -- ============================================================================
 
-local function process_incoming_message(channel, user_key, raw_text)
+local function process_incoming_message(channel, user_key, raw_text, user_color, display_name)
     if not channel or not user_key or not raw_text or raw_text == "" then return end
-    if raw_text:find("SPAM WARNING", 1, true) then return end
+    if raw_text:find("SPAM WARN", 1, true) then return end
 
-    local norm_text, word_set, word_count = normalize_text(raw_text)
+    local is_laugh = is_pure_laughter(raw_text)
+    local norm_text, words, word_count = normalize_text(raw_text)
     if norm_text == "" then return end
 
     local state_ref = get_channel_state(channel)
@@ -294,8 +350,22 @@ local function process_incoming_message(channel, user_key, raw_text)
 
     local now = get_current_timestamp()
 
-    -- FIX: update last_seen on every message so cleanup doesn't evict active users
+    -- Time-based score decay for idle gaps between messages
+    if ustate.last_seen and ustate.last_seen > 0 then
+        local elapsed = now - ustate.last_seen
+        if elapsed > 45 then
+            local decay_steps = math.min(10, math.floor(elapsed / 45))
+            ustate.score = math.max(0, ustate.score - (decay_steps * 8))
+        end
+    end
+
     ustate.last_seen = now
+    if user_color and user_color ~= "" then
+        ustate.user_color = user_color
+    end
+    if display_name and display_name ~= "" then
+        ustate.display_name = display_name
+    end
 
     state_ref.msg_counter = (state_ref.msg_counter or 0) + 1
     if state_ref.msg_counter >= CONFIG.CLEANUP_INTERVAL then
@@ -304,12 +374,13 @@ local function process_incoming_message(channel, user_key, raw_text)
     end
 
     local entry = {
-        text       = norm_text,
-        raw        = raw_text,
-        word_set   = word_set,
-        word_count = word_count,
-        len        = #norm_text,
-        timestamp  = now,
+        text        = norm_text,
+        raw         = raw_text,
+        words       = words,
+        word_count  = word_count,
+        len         = #norm_text,
+        timestamp   = now,
+        is_laughter = is_laugh,
     }
 
     local best_score     = 0.0
@@ -324,19 +395,19 @@ local function process_incoming_message(channel, user_key, raw_text)
         end
     end
 
-    -- Pattern match: enough similar messages with high confidence
     local pattern_match = similar_matches >= CONFIG.REQUIRED_MATCHES
                        and best_score      >= CONFIG.SIMILARITY_THRESHOLD
 
-    -- FIX: score accumulates when spamming, decays when normal → becomes a second trigger path
-    if pattern_match then
-        ustate.score = math.min(100, ustate.score + (best_score * 35) + (similar_matches * 12))
+    -- Score accumulates upon ANY similar/duplicate message and decays on clean messages
+    if best_score >= CONFIG.SIMILARITY_THRESHOLD then
+        ustate.score = math.min(100, ustate.score + (best_score * 35) + (similar_matches * 15))
     else
         ustate.score = math.max(0, ustate.score - 6)
     end
 
-    -- FIX: score threshold is now a real second trigger (catches slow/paced spammers)
-    local score_match = ustate.score >= CONFIG.SCORE_TRIGGER_THRESHOLD
+    -- Score trigger only fires if the current message is ALSO similar to previous messages
+    local score_match = (ustate.score >= CONFIG.SCORE_TRIGGER_THRESHOLD)
+                     and (best_score >= CONFIG.SIMILARITY_THRESHOLD)
 
     if pattern_match or score_match then
         local time_since_last_warn = now - ustate.last_warning
@@ -346,19 +417,27 @@ local function process_incoming_message(channel, user_key, raw_text)
 
             local info_txt
             if pattern_match then
+                local percent = math.floor(best_score * 100)
                 info_txt = string.format(
-                    " (%d%% similarity | %d matches | Score %d | %d | Pattern): \"%s\"",
-                    math.floor(best_score * 100), similar_matches + 1,
-                    math.floor(ustate.score), CONFIG.SCORE_TRIGGER_THRESHOLD, raw_text
+                    " (%d%% similarity | %d matches | Score %d/%d | Pattern): \"%s\"",
+                    percent,
+                    similar_matches + 1,
+                    math.floor(ustate.score),
+                    CONFIG.SCORE_TRIGGER_THRESHOLD,
+                    raw_text
                 )
             else
                 info_txt = string.format(
-                    " (Score %d | %d): \"%s\"",
-                    math.floor(ustate.score), CONFIG.SCORE_TRIGGER_THRESHOLD, raw_text
+                    " (Score %d/%d): \"%s\"",
+                    math.floor(ustate.score),
+                    CONFIG.SCORE_TRIGGER_THRESHOLD,
+                    raw_text
                 )
             end
 
-            -- Try to build a rich message with a clickable username (opens user popup)
+            local mention_display = ustate.display_name or user_key
+            local mention_color   = ustate.user_color or "text"
+
             local ok_msg, warn_msg = pcall(function()
                 return c2.Message.new({
                     message_text = "SPAM WARNING",
@@ -370,10 +449,10 @@ local function process_incoming_message(channel, user_key, raw_text)
                         },
                         {
                             type           = "mention",
-                            display_name   = user_key,
+                            display_name   = mention_display,
                             login_name     = user_key,
                             fallback_color = "text",
-                            user_color     = "#ff0000",
+                            user_color     = mention_color,
                         },
                         {
                             type  = "text",
@@ -385,18 +464,17 @@ local function process_incoming_message(channel, user_key, raw_text)
             end)
 
             if ok_msg and warn_msg then
-                local ok_add, add_err = pcall(function()
+                local ok_add = pcall(function()
                     channel:add_message(warn_msg)
                 end)
                 if not ok_add then
-                    -- Fallback if add_message fails
                     channel:add_system_message(
-                        "[⚠️ SPAM WARNING ⚠️] " .. user_key .. info_txt
+                        "[⚠️ SPAM WARNING ⚠️] " .. mention_display .. info_txt
                     )
                 end
             else
                 channel:add_system_message(
-                    "[⚠️ SPAM WARNING ⚠️] " .. user_key .. info_txt
+                    "[⚠️ SPAM WARNING ⚠️] " .. mention_display .. info_txt
                 )
             end
         end
@@ -445,7 +523,17 @@ local function register_channel(channel)
             local raw_text = extract_message_text(msg)
             if raw_text == "" then return end
 
-            process_incoming_message(channel, user_key, raw_text)
+            local user_color = nil
+            if type(msg.username_color) == "string" and msg.username_color ~= "" then
+                user_color = msg.username_color
+            end
+
+            local display_name = user_key
+            if type(msg.display_name) == "string" and msg.display_name ~= "" then
+                display_name = msg.display_name
+            end
+
+            process_incoming_message(channel, user_key, raw_text, user_color, display_name)
         end)
 
         if not ok and c2 and c2.log and c2.LogLevel then
@@ -472,11 +560,11 @@ local function handle_command(ctx)
 
     if arg == "off" or arg == "stop" or arg == "disable" then
         state.enabled = false
-        channel:add_system_message("🛡️ Spam Detector disabled.")
+        channel:add_system_message("🛡️ Spam Detector DISABLED.")
 
     elseif arg == "on" or arg == "start" or arg == "enable" then
         state.enabled = true
-        channel:add_system_message("🛡️ Spam Detector enabled.")
+        channel:add_system_message("🛡️ Spam Detector ENABLED.")
 
     elseif arg == "status" then
         local user_count    = 0
@@ -485,11 +573,11 @@ local function handle_command(ctx)
             user_count = user_count + 1
             if u.strikes > 0 then flagged_count = flagged_count + 1 end
         end
-        local status_str = state.enabled and "AKTIV" or "INAKTIV"
+        local status_str = state.enabled and "ACTIVE" or "INACTIVE"
         local chan_name  = get_channel_name(channel)
         local chan_label = chan_name and ("#" .. chan_name) or "Channel"
         channel:add_system_message(string.format(
-            "🛡️ Status: %s (%s) | Users: %d (Flagged: %d) | Threshold: %d%% | Score limit: %d",
+            "🛡️ Status: %s (%s) | Monitored users: %d (Flagged: %d) | Threshold: %d%% | Score limit: %d",
             status_str, chan_label, user_count, flagged_count,
             math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
             CONFIG.SCORE_TRIGGER_THRESHOLD
@@ -497,7 +585,7 @@ local function handle_command(ctx)
 
     elseif arg == "clear" or arg == "reset" then
         state.by_user = {}
-        channel:add_system_message("🛡️ Spam Detector: detection history cleared.")
+        channel:add_system_message("🛡️ Spam Detector: Detection history and user scores cleared.")
 
     elseif arg == "test" then
         local test_words = {}
@@ -511,10 +599,10 @@ local function handle_command(ctx)
             test_text = "This is a test message for the Spam Detector!"
         end
 
-        process_incoming_message(channel, "test_spammer", test_text)
+        process_incoming_message(channel, "test_spammer", test_text, "#00ff7f", "test_spammer")
         local ustate = state.by_user["test_spammer"]
         channel:add_system_message(string.format(
-            "🧪 test_spammer · Score: %d/%d · History: %d/%d entries",
+            "🧪 test_spammer · Score: %d/%d · History: %d/%d entries (Send again to trigger!)",
             ustate and math.floor(ustate.score) or 0,
             CONFIG.SCORE_TRIGGER_THRESHOLD,
             ustate and #ustate.history or 0,
@@ -523,15 +611,15 @@ local function handle_command(ctx)
 
     elseif arg == "help" then
         channel:add_system_message(
-            "🛡️ Commands: /sg · /sg on · /sg off · /sg status · /sg clear · /sg test <text>"
+            "🛡️ Commands: /sg (toggle) · /sg on · /sg off · /sg status · /sg clear · /sg test <text>"
         )
 
     else
         state.enabled = not state.enabled
         if state.enabled then
-            channel:add_system_message("🛡️ Spam Detector enabled. (/sg help for commands)")
+            channel:add_system_message("🛡️ Spam Detector ENABLED. (/sg help for commands)")
         else
-            channel:add_system_message("🛡️ Spam Detector disabled.")
+            channel:add_system_message("🛡️ Spam Detector DISABLED.")
         end
     end
 end

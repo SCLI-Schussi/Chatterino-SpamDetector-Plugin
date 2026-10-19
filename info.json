@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/Chatterino/chatterino2/master/docs/plugin-info.schema.json",
   "name": "Spam Detector",
-  "description": "Spam-Schutz für wiederholte Nachrichten mit ähnlichen Textmustern im Chat.",
+  "description": "Real-time spam detection for repeated and similar messages with smart fuzzy matching.",
   "authors": ["SCLI | Schussi"],
   "homepage": "https://github.com/SCLI-Schussi/SpamDetector",
   "tags": ["spam", "filter", "security"],
-  "version": "1.2.8",
+  "version": "1.2.9",
   "license": "MIT",
   "permissions": []
 }
