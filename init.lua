@@ -1,5 +1,5 @@
 -- ============================================================================
--- SpamDetector Release
+-- SpamDetector v1.3.0
 -- ============================================================================
 
 local CONFIG = {
@@ -13,7 +13,7 @@ local CONFIG = {
     USER_INACTIVE_TIMEOUT   = 300,
 }
 
-local channel_states     = {}
+local channel_states      = {}
 local registered_channels = {}
 
 -- ============================================================================
@@ -383,7 +383,7 @@ local function process_incoming_message(channel, user_key, raw_text, user_color,
         is_laughter = is_laugh,
     }
 
-    local best_score     = 0.0
+    local best_score      = 0.0
     local similar_matches = 0
 
     for i = 1, #ustate.history do
@@ -487,10 +487,10 @@ local function process_incoming_message(channel, user_key, raw_text, user_color,
 end
 
 -- ============================================================================
--- CHANNEL REGISTRATION
+-- CHANNEL REGISTRATION & SYNC
 -- ============================================================================
 
-local function register_channel(channel)
+local function register_channel(channel, silent)
     if not channel then return end
 
     local channel_key = get_channel_key(channel)
@@ -502,10 +502,12 @@ local function register_channel(channel)
 
     local chan_name  = get_channel_name(channel)
     local chan_label = chan_name and ("#" .. chan_name) or "this chat"
-    channel:add_system_message(string.format(
-        "🛡️ Spam Detector active · Monitoring started for %s. (/sg status | /sg help)",
-        chan_label
-    ))
+    if not silent then
+        channel:add_system_message(string.format(
+            "🛡️ Spam Detector active · Monitoring started for %s. (/sg status | /sg help)",
+            chan_label
+        ))
+    end
 
     channel:on_message_appended(function(msg)
         if not msg then return end
@@ -542,6 +544,35 @@ local function register_channel(channel)
     end)
 end
 
+local function sync_channels()
+    pcall(function()
+        if c2.windows and c2.windows.all then
+            for _, window in pairs(c2.windows:all()) do
+                local notebook = window.notebook
+                local count = (notebook and notebook.page_count) or 0
+                for i = 0, count - 1 do
+                    local page = notebook:page_at(i)
+                    if page then
+                        for _, split in pairs(page:splits()) do
+                            local channel = split.channel
+                            if channel and channel:is_valid() and channel:get_type() ~= c2.ChannelType.None then
+                                local key = get_channel_key(channel)
+                                if not registered_channels[key] then
+                                    register_channel(channel, true)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    if c2.later then
+        c2.later(sync_channels, 3000)
+    end
+end
+
 -- ============================================================================
 -- COMMAND HANDLER (/sg & /spamguard)
 -- ============================================================================
@@ -550,8 +581,10 @@ local function handle_command(ctx)
     local channel = ctx.channel
     if not channel then return end
 
-    register_channel(channel)
+    register_channel(channel, true)
     local state = get_channel_state(channel)
+    local chan_name = get_channel_name(channel) or "this chat"
+    local chan_label = chan_name ~= "this chat" and ("#" .. chan_name) or "this chat"
 
     local arg = ""
     if ctx.words and #ctx.words >= 2 and type(ctx.words[2]) == "string" then
@@ -560,11 +593,11 @@ local function handle_command(ctx)
 
     if arg == "off" or arg == "stop" or arg == "disable" then
         state.enabled = false
-        channel:add_system_message("🛡️ Spam Detector DISABLED.")
+        channel:add_system_message(string.format("🛡️ Spam Detector DISABLED for %s.", chan_label))
 
     elseif arg == "on" or arg == "start" or arg == "enable" then
         state.enabled = true
-        channel:add_system_message("🛡️ Spam Detector ENABLED.")
+        channel:add_system_message(string.format("🛡️ Spam Detector ENABLED for %s.", chan_label))
 
     elseif arg == "status" then
         local user_count    = 0
@@ -574,8 +607,7 @@ local function handle_command(ctx)
             if u.strikes > 0 then flagged_count = flagged_count + 1 end
         end
         local status_str = state.enabled and "ACTIVE" or "INACTIVE"
-        local chan_name  = get_channel_name(channel)
-        local chan_label = chan_name and ("#" .. chan_name) or "Channel"
+
         channel:add_system_message(string.format(
             "🛡️ Status: %s (%s) | Monitored users: %d (Flagged: %d) | Threshold: %d%% | Score limit: %d",
             status_str, chan_label, user_count, flagged_count,
@@ -617,12 +649,14 @@ local function handle_command(ctx)
     else
         state.enabled = not state.enabled
         if state.enabled then
-            channel:add_system_message("🛡️ Spam Detector ENABLED. (/sg help for commands)")
+            channel:add_system_message(string.format("🛡️ Spam Detector ENABLED for %s.", chan_label))
         else
-            channel:add_system_message("🛡️ Spam Detector DISABLED.")
+            channel:add_system_message(string.format("🛡️ Spam Detector DISABLED for %s.", chan_label))
         end
     end
 end
 
 c2.register_command("/sg",        handle_command)
 c2.register_command("/spamguard", handle_command)
+
+sync_channels()
