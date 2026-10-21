@@ -1,8 +1,8 @@
-# 🛡️ Chatterino SpamDetector Plugin (v1.2.9)
+# 🛡️ Chatterino SpamDetector Plugin (v1.3.0)
 
 Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
 
-![Version](https://img.shields.io/badge/Version-1.2.9-blue)
+![Version](https://img.shields.io/badge/Version-1.3.0-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Chatterino](https://img.shields.io/badge/Chatterino-Nightly-orange)
 ![Language](https://img.shields.io/badge/Language-Lua-000080)
@@ -63,10 +63,10 @@ The Spam Detector is configured separately for each chat tab. After loading the 
 
 | Command | Description |
 | --- | --- |
-| `/sg on` or `/spamguard on` | Enables the Spam Detector in the current chat tab. |
-| `/sg off` or `/spamguard off` | Disables the Spam Detector in the current chat tab. |
+| `/sg on` or `/spamguard on` | Enables the Spam Detector for this chat and saves it permanently. |
+| `/sg off` or `/spamguard off` | Disables the Spam Detector for this chat and updates saved settings. |
 | `/sg` or `/spamguard` | Toggles the Spam Detector in the current chat tab. |
-| `/sg status` or `/spamguard status` | Shows the status, tracked users, and detection thresholds. |
+| `/sg status` or `/spamguard status` | Shows status, monitored users, thresholds, and all saved active channels. |
 | `/sg clear` or `/spamguard clear` | Clears the detection history for the current chat tab. |
 | `/sg test <text>` or `/spamguard test <text>` | Sends a test message through the detector. |
 | `/sg help` or `/spamguard help` | Shows a brief command summary in chat. |
