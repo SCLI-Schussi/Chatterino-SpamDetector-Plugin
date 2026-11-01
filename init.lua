@@ -1,5 +1,5 @@
 -- ============================================================================
--- SpamDetector v1.5.2
+-- SpamDetector v1.5.3
 -- ============================================================================
 
 local CONFIG = {
@@ -18,52 +18,11 @@ local CONFIG = {
 local channel_states      = {}
 local registered_channels = {}
 local custom_ignored       = {}  -- global ignore list: custom_ignored[login] = true
+local auto_bots           = {}  -- bots detected via badge: auto_bots[login] = true
 
 -- ============================================================================
--- KNOWN BOTS & SYSTEM MESSAGE MASKS
+-- SYSTEM MESSAGE MASKS
 -- ============================================================================
-
-local KNOWN_BOTS = {
-    ["nightbot"]             = true,
-    ["streamelements"]       = true,
-    ["streamlabs"]           = true,
-    ["moobot"]               = true,
-    ["fossabot"]             = true,
-    ["wizebot"]              = true,
-    ["stay_hydrated_bot"]    = true,
-    ["commanderroot"]        = true,
-    ["supibot"]              = true,
-    ["sery_bot"]             = true,
-    ["pokemoncommunitygame"] = true,
-    ["soundalerts"]          = true,
-    ["lumia"]                = true,
-    ["botrix"]               = true,
-    ["kofistreambot"]        = true,
-    ["restreambot"]          = true,
-    ["buttsbot"]             = true,
-    ["ankhbot"]              = true,
-    ["deepbot"]              = true,
-    ["cozybot"]              = true,
-    ["songlistbot"]          = true,
-    ["creatisbot"]           = true,
-    ["tipeeebot"]            = true,
-    ["muxybot"]              = true,
-    ["pretzelrocks"]         = true,
-    ["own3d"]                = true,
-    ["casterlabs"]           = true,
-    ["blerp"]                = true,
-    ["streamstickers"]       = true,
-    ["tangia"]               = true,
-    ["kickbot"]              = true,
-    ["dixper"]               = true,
-    ["frostytoolsbot"]       = true,
-    ["streamcaptainbot"]     = true,
-    ["crevbot"]              = true,
-    ["rainmaker"]            = true,
-    ["treatstream"]          = true,
-    ["streamerbot"]          = true,
-    ["kofi"]                 = true,
-}
 
 local SKIP_MASK = 0
 if c2 and c2.MessageFlag then
@@ -79,6 +38,23 @@ if c2 and c2.MessageFlag then
         if math.type(val) == "integer" then
             SKIP_MASK = SKIP_MASK | val
         end
+    end
+end
+
+-- Badge flags used for automatic moderator detection.
+-- Channel authority = broadcaster / moderator / lead moderator / VIP
+-- Global authority  = staff / admin / global moderator
+local AUTHORITY_MASK = 0
+local USERNAME_FLAG  = 0
+if c2 and c2.MessageElementFlag then
+    for _, name in ipairs({ "BadgeChannelAuthority", "BadgeGlobalAuthority" }) do
+        local val = c2.MessageElementFlag[name]
+        if math.type(val) == "integer" then
+            AUTHORITY_MASK = AUTHORITY_MASK | val
+        end
+    end
+    if math.type(c2.MessageElementFlag.Username) == "integer" then
+        USERNAME_FLAG = c2.MessageElementFlag.Username
     end
 end
 
@@ -311,7 +287,8 @@ local function get_channel_state(channel)
             channel     = channel,
             msg_counter = 0,
             by_user     = {},
-            mods        = {},  -- per-channel manual mod/exempt cache: mods[login] = true
+            mods        = {},  -- per-channel MANUAL mod/exempt list: mods[login] = true
+            auto_mods   = {},  -- per-channel mods detected via badge: auto_mods[login] = true
         }
     end
 
@@ -384,13 +361,77 @@ local function get_current_user_login()
     return nil
 end
 
-local function is_bot_user(user_key)
+-- Reads the badge elements in front of the username and reports whether the
+-- sender carries a moderator-type badge and / or a "Chat Bot" badge.
+-- Only badge elements are inspected, so chat text can never spoof this.
+local function scan_badges(msg)
+    local is_mod, is_bot = false, false
+    if not msg then return is_mod, is_bot end
+
+    pcall(function()
+        local elements = msg:elements()
+        if not elements then return end
+
+        for i = 1, #elements do
+            local el = elements[i]
+            if el then
+                local flags = el.flags
+                -- Badges always come before the username: stop there
+                if USERNAME_FLAG ~= 0 and math.type(flags) == "integer"
+                   and (flags & USERNAME_FLAG) ~= 0 then
+                    break
+                end
+
+                local etype = el.type
+                if etype == "badge" or etype == "mod-badge"
+                   or etype == "vip-badge" or etype == "ffz-badge" then
+                    local tip = type(el.tooltip) == "string" and el.tooltip:lower() or ""
+                    local is_vip = (etype == "vip-badge") or tip:find("vip", 1, true) ~= nil
+
+                    if etype == "mod-badge" then
+                        -- custom FFZ moderator badge
+                        is_mod = true
+                    elseif not is_vip then
+                        if AUTHORITY_MASK ~= 0 and math.type(flags) == "integer"
+                           and (flags & AUTHORITY_MASK) ~= 0 then
+                            -- broadcaster / (lead) moderator / staff / admin / global mod
+                            is_mod = true
+                        elseif tip:find("moderator", 1, true)
+                            or tip:find("broadcaster", 1, true)
+                            or tip:find("staff", 1, true)
+                            or tip:find("admin", 1, true) then
+                            -- fallback if the flag bits are not available
+                            is_mod = true
+                        end
+                    end
+
+                    -- Twitch "Chat Bot" badge (and FFZ / other bot badges)
+                    if tip:find("%f[%a]bot%f[%A]") then
+                        is_bot = true
+                    end
+                end
+            end
+        end
+    end)
+
+    return is_mod, is_bot
+end
+
+local function is_bot_user(user_key, msg)
     if not user_key or user_key == "" then return false end
-    if KNOWN_BOTS[user_key] then return true end
+    if auto_bots[user_key] then return true end
+
+    if msg then
+        local _, bot_badge = scan_badges(msg)
+        if bot_badge then
+            auto_bots[user_key] = true
+            return true
+        end
+    end
     return false
 end
 
-local function check_is_moderator(channel, user_key)
+local function check_is_moderator(channel, user_key, msg)
     -- 1. Broadcaster / channel owner: always exempt
     local chan_name = get_channel_name(channel)
     if chan_name and user_key == chan_name then
@@ -402,20 +443,45 @@ local function check_is_moderator(channel, user_key)
         return true
     end
 
-    -- 3. Per-channel manual mod cache (added via /sg mod add)
+    -- 3. Per-channel manual mod list (added via /sg mod add)
     local state = channel and channel_states[get_channel_key(channel)]
     if state and state.mods and state.mods[user_key] then
         return true
     end
 
-    return false
+    -- 4. Automatic detection via moderator badge on the message itself.
+    --    The badge is re-checked on every message, so a de-modded user is
+    --    monitored again right away.
+    if msg then
+        local is_mod = scan_badges(msg)
+        if state then
+            if not state.auto_mods then state.auto_mods = {} end
+            if is_mod then
+                if not state.auto_mods[user_key] then
+                    state.auto_mods[user_key] = true
+                    state.by_user[user_key]   = nil  -- drop stale scores
+                end
+            else
+                state.auto_mods[user_key] = nil
+            end
+        end
+        return is_mod
+    end
+
+    -- No message at hand (e.g. /sg test): fall back to what we saw earlier
+    return (state and state.auto_mods and state.auto_mods[user_key]) or false
 end
 
-local function is_ignored_user(channel, user_key)
+local function is_ignored_user(channel, user_key, msg)
     if not user_key or user_key == "" then return true end
 
+    -- Custom ignored users always win, independent of the toggles
+    if custom_ignored[user_key] then
+        return true
+    end
+
     -- Bots check
-    if CONFIG.IGNORE_BOTS and is_bot_user(user_key) then
+    if CONFIG.IGNORE_BOTS and is_bot_user(user_key, msg) then
         return true
     end
 
@@ -426,7 +492,7 @@ local function is_ignored_user(channel, user_key)
     end
 
     -- Moderator / Broadcaster check
-    if CONFIG.IGNORE_MODS and check_is_moderator(channel, user_key) then
+    if CONFIG.IGNORE_MODS and check_is_moderator(channel, user_key, msg) then
         return true
     end
 
@@ -674,8 +740,8 @@ local function register_channel(channel, silent)
 
             if not user_key or user_key == "" then return end
 
-            -- Ignore bots, self, broadcaster, and manually exempted users
-            if is_ignored_user(channel, user_key) then
+            -- Ignore bots, self, mods (badge), broadcaster and exempted users
+            if is_ignored_user(channel, user_key, msg) then
                 return
             end
 
@@ -764,13 +830,20 @@ local function handle_command(ctx)
             if u.strikes > 0 then flagged_count = flagged_count + 1 end
         end
 
-        -- Count per-channel cached mods
+        -- Per-channel exempt mods: manual list + badge-detected
         local mod_names = {}
-        if state.mods then
-            for m in pairs(state.mods) do
-                mod_names[#mod_names + 1] = "@" .. m
+        local seen_mod  = {}
+        for _, list in ipairs({ state.mods or {}, state.auto_mods or {} }) do
+            for m in pairs(list) do
+                if not seen_mod[m] then
+                    seen_mod[m] = true
+                    mod_names[#mod_names + 1] = "@" .. m
+                end
             end
         end
+        table.sort(mod_names)
+        local bot_count = 0
+        for _ in pairs(auto_bots) do bot_count = bot_count + 1 end
         -- Count global ignores
         local global_ignore_count = 0
         for _ in pairs(custom_ignored) do
@@ -782,14 +855,15 @@ local function handle_command(ctx)
         local broadcaster_kv = chan_name ~= "this chat" and ("broadcaster=@" .. chan_name) or ""
 
         channel:add_system_message(string.format(
-            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d) | Channel mods (%d): %s",
+            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d) | Exempt mods (%d): %s",
             status_str, chan_label, user_count, flagged_count,
             #mod_names, mods_display
         ))
         channel:add_system_message(string.format(
-            "🛡️ Exclusions: Mods=%s | Bots=%s | Global ignores: %d | Threshold: %d%% | Limit: %d",
+            "🛡️ Exclusions: Mods=%s | Bots=%s (badge-detected: %d) | Global ignores: %d | Threshold: %d%% | Limit: %d",
             CONFIG.IGNORE_MODS and "ON" or "OFF",
             CONFIG.IGNORE_BOTS and "ON" or "OFF",
+            bot_count,
             global_ignore_count,
             math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
             CONFIG.SCORE_TRIGGER_THRESHOLD
@@ -831,16 +905,26 @@ local function handle_command(ctx)
             end
 
         elseif sub == "list" or sub == "" then
-            local mod_list = {}
-            if state.mods then
-                for m in pairs(state.mods) do
-                    mod_list[#mod_list + 1] = "@" .. m
+            local manual_list, auto_list = {}, {}
+            for m in pairs(state.mods or {}) do
+                manual_list[#manual_list + 1] = "@" .. m
+            end
+            for m in pairs(state.auto_mods or {}) do
+                if not (state.mods and state.mods[m]) then
+                    auto_list[#auto_list + 1] = "@" .. m
                 end
             end
-            local display = #mod_list > 0 and table.concat(mod_list, ", ") or "none"
+            table.sort(manual_list)
+            table.sort(auto_list)
             channel:add_system_message(string.format(
-                "🛡️ Channel mod exempt list for %s (%d): %s",
-                chan_label, #mod_list, display
+                "🛡️ Manual mod exempt list for %s (%d): %s",
+                chan_label, #manual_list,
+                #manual_list > 0 and table.concat(manual_list, ", ") or "none"
+            ))
+            channel:add_system_message(string.format(
+                "🛡️ Mods detected via badge in %s (%d): %s",
+                chan_label, #auto_list,
+                #auto_list > 0 and table.concat(auto_list, ", ") or "none yet"
             ))
             channel:add_system_message("🛡️ Tip: /sg mod add <name> · /sg mod remove <name>")
         else
@@ -908,9 +992,11 @@ local function handle_command(ctx)
         end
 
     elseif arg == "clear" or arg == "reset" then
-        state.by_user = {}
-        state.mods    = {}
-        channel:add_system_message("🛡️ Spam Detector: Detection history, user scores, and mod cache cleared.")
+        state.by_user   = {}
+        state.mods      = {}
+        state.auto_mods = {}
+        auto_bots       = {}
+        channel:add_system_message("🛡️ Spam Detector: Detection history, user scores, and mod/bot caches cleared.")
 
     elseif arg == "test" then
         local test_words = {}

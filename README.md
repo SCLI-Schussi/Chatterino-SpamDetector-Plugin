@@ -1,16 +1,8 @@
-<<<<<<< HEAD
-# 🛡️ Chatterino SpamDetector Plugin (v1.5.2)
+# 🛡️ Chatterino SpamDetector Plugin (v1.5.3)
 
 Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
 
-![Version](https://img.shields.io/badge/Version-1.5.2-blue)
-=======
-# 🛡️ Chatterino SpamDetector Plugin (v1.5.2)
-
-Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
-
-![Version](https://img.shields.io/badge/Version-1.5.2-blue)
->>>>>>> 6d147ce8492496579dcc7317950eeed06202e7f1
+![Version](https://img.shields.io/badge/Version-1.5.3-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Chatterino](https://img.shields.io/badge/Chatterino-Nightly-orange)
 ![Language](https://img.shields.io/badge/Language-Lua-000080)
@@ -22,7 +14,7 @@ Protects Twitch chat from repeated messages with similar text patterns. A lightw
 - **Similarity detection:** Compares messages using Levenshtein distance and word similarity to identify repeated messages with small variations.
 - **Multiple detection criteria:** Looks for repeated similar messages and uses an additional spam score to detect slower spam.
 - **Auto-attaches on startup:** Automatically starts monitoring in all open chat tabs when Chatterino starts.
-- **Excludes Moderators, Broadcasters & Bots:** Ignores channel moderators, broadcasters, own messages, and common Twitch bots by default.
+- **Excludes Moderators, Broadcasters & Bots:** Recognizes moderators (incl. lead mods, staff/admins) and bots purely by their chat badge (Twitch *Chat Bot* badge), so look-alike names can't dodge detection. The broadcaster and your own messages are ignored too. Use `/sg ignore <user>` for bots without a badge. VIPs and subscribers stay monitored.
 - **Fresh sessions:** Starts completely fresh every time Chatterino opens without storing chat history across sessions.
 - **Per-chat controls:** Enable or disable protection separately in each chat tab.
 - **Chat warnings:** Displays a highlighted warning with the user's name and similarity score when spam is detected.
