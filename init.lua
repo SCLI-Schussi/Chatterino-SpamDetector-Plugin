@@ -1,5 +1,5 @@
 -- ============================================================================
--- SpamDetector v1.5.0
+-- SpamDetector v1.5.1
 -- ============================================================================
 
 local CONFIG = {
@@ -403,7 +403,7 @@ local function check_is_moderator(channel, user_key, msg)
         return true
     end
 
-    -- 3. Check elements for moderator / authority badges
+    -- 3. Check elements for actual moderator badges (strictly before username)
     if msg then
         local ok, is_mod = pcall(function()
             local elements = msg:elements()
@@ -413,25 +413,23 @@ local function check_is_moderator(channel, user_key, msg)
             for i = 1, el_count do
                 local el = elements[i]
                 if el then
-                    -- Tooltip check (e.g. "Moderator", "Twitch Channel Moderator", "Broadcaster", "Staff", "Admin")
+                    -- Stop as soon as we reach the username or chat text
+                    if el.flags and math.type(el.flags) == "integer" and c2 and c2.MessageElementFlag and c2.MessageElementFlag.Username then
+                        if (el.flags & c2.MessageElementFlag.Username) ~= 0 then
+                            break
+                        end
+                    end
+                    if el.words and #el.words > 0 then
+                        break
+                    end
+
+                    -- Check tooltip on badge elements
                     if type(el.tooltip) == "string" and el.tooltip ~= "" then
                         local tt = el.tooltip:lower()
                         if tt:find("moderator", 1, true)
-                           or tt:find("broadcaster", 1, true)
+                           or tt:find("lead mod", 1, true)
                            or tt:find("twitch staff", 1, true)
                            or tt:find("admin", 1, true) then
-                            return true
-                        end
-                    end
-
-                    -- Element flags check
-                    if el.flags and math.type(el.flags) == "integer" and c2 and c2.MessageElementFlag then
-                        local bca = c2.MessageElementFlag.BadgeChannelAuthority
-                        local bga = c2.MessageElementFlag.BadgeGlobalAuthority
-                        local modtools = c2.MessageElementFlag.ModeratorTools
-                        if (bca and (el.flags & bca) ~= 0)
-                           or (bga and (el.flags & bga) ~= 0)
-                           or (modtools and (el.flags & modtools) ~= 0) then
                             return true
                         end
                     end
@@ -810,22 +808,26 @@ local function handle_command(ctx)
             user_count = user_count + 1
             if u.strikes > 0 then flagged_count = flagged_count + 1 end
         end
-        local mod_count = 0
+        local mod_names = {}
         if state.mods then
-            for _ in pairs(state.mods) do mod_count = mod_count + 1 end
+            for m in pairs(state.mods) do
+                mod_names[#mod_names + 1] = "@" .. m
+            end
         end
+        local mods_display = #mod_names > 0 and table.concat(mod_names, ", ") or "none"
         local status_str = state.enabled and "ACTIVE" or "INACTIVE"
 
         channel:add_system_message(string.format(
-            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d, Mods cached: %d) | Threshold: %d%% | Limit: %d",
-            status_str, chan_label, user_count, flagged_count, mod_count,
-            math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
-            CONFIG.SCORE_TRIGGER_THRESHOLD
+            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d) | Cached mods (%d): %s",
+            status_str, chan_label, user_count, flagged_count,
+            #mod_names, mods_display
         ))
         channel:add_system_message(string.format(
-            "🛡️ Exclusions: Mods/Broadcaster = %s | Bots = %s",
+            "🛡️ Exclusions: Mods/Broadcaster = %s | Bots = %s | Threshold: %d%% | Limit: %d",
             CONFIG.IGNORE_MODS and "IGNORED" or "MONITORED",
-            CONFIG.IGNORE_BOTS and "IGNORED" or "MONITORED"
+            CONFIG.IGNORE_BOTS and "IGNORED" or "MONITORED",
+            math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
+            CONFIG.SCORE_TRIGGER_THRESHOLD
         ))
 
     elseif arg == "mods" then
