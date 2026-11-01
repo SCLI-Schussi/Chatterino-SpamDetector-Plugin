@@ -1,16 +1,8 @@
-<<<<<<<<< Temporary merge branch 1
-# 🛡️ Chatterino SpamDetector Plugin (v1.5.1)
+# 🛡️ Chatterino SpamDetector Plugin (v1.5.3)
 
 Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
 
-![Version](https://img.shields.io/badge/Version-1.5.1-blue)
-=========
-# 🛡️ Chatterino SpamDetector Plugin (v1.5.2)
-
-Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
-
-![Version](https://img.shields.io/badge/Version-1.5.2-blue)
->>>>>>>>> Temporary merge branch 2
+![Version](https://img.shields.io/badge/Version-1.5.3-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Chatterino](https://img.shields.io/badge/Chatterino-Nightly-orange)
 ![Language](https://img.shields.io/badge/Language-Lua-000080)
