@@ -1,5 +1,5 @@
 -- ============================================================================
--- SpamDetector v1.4.0
+-- SpamDetector v1.5.0
 -- ============================================================================
 
 local CONFIG = {
@@ -11,10 +11,76 @@ local CONFIG = {
     MIN_MESSAGE_LENGTH      = 3,
     CLEANUP_INTERVAL        = 80,
     USER_INACTIVE_TIMEOUT   = 300,
+    IGNORE_BOTS             = true,
+    IGNORE_MODS             = true,
 }
 
 local channel_states      = {}
 local registered_channels = {}
+local custom_ignored       = {}
+
+-- ============================================================================
+-- KNOWN BOTS & SYSTEM MESSAGE MASKS
+-- ============================================================================
+
+local KNOWN_BOTS = {
+    ["nightbot"]             = true,
+    ["streamelements"]       = true,
+    ["streamlabs"]           = true,
+    ["moobot"]               = true,
+    ["fossabot"]             = true,
+    ["wizebot"]              = true,
+    ["stay_hydrated_bot"]    = true,
+    ["commanderroot"]        = true,
+    ["supibot"]              = true,
+    ["sery_bot"]             = true,
+    ["pokemoncommunitygame"] = true,
+    ["soundalerts"]          = true,
+    ["lumia"]                = true,
+    ["botrix"]               = true,
+    ["kofistreambot"]        = true,
+    ["restreambot"]          = true,
+    ["buttsbot"]             = true,
+    ["ankhbot"]              = true,
+    ["deepbot"]              = true,
+    ["cozybot"]              = true,
+    ["songlistbot"]          = true,
+    ["creatisbot"]           = true,
+    ["tipeeebot"]            = true,
+    ["muxybot"]              = true,
+    ["pretzelrocks"]         = true,
+    ["own3d"]                = true,
+    ["casterlabs"]           = true,
+    ["blerp"]                = true,
+    ["streamstickers"]       = true,
+    ["tangia"]               = true,
+    ["kickbot"]              = true,
+    ["dixper"]               = true,
+    ["frostytoolsbot"]       = true,
+    ["streamcaptainbot"]     = true,
+    ["crevbot"]              = true,
+    ["rainmaker"]            = true,
+    ["treatstream"]          = true,
+    ["streamerbot"]          = true,
+    ["kofi"]                 = true,
+}
+
+local SKIP_MASK = 0
+if c2 and c2.MessageFlag then
+    local skip_names = {
+        "System", "Timeout", "Disabled", "ConnectedMessage", "DisconnectedMessage",
+        "Untimeout", "PubSub", "Subscription", "RecentMessage", "Debug",
+        "LiveUpdatesAdd", "LiveUpdatesRemove", "LiveUpdatesUpdate", "ModerationAction",
+        "ClearChat", "WatchStreak", "UncategorizedNotification",
+        "AutoModOffendingMessageHeader", "AsciiArt",
+    }
+    for _, name in ipairs(skip_names) do
+        local val = c2.MessageFlag[name]
+        if math.type(val) == "integer" then
+            SKIP_MASK = SKIP_MASK | val
+        end
+    end
+end
 
 -- ============================================================================
 -- NORMALIZATION & NOISE FILTER
@@ -245,6 +311,7 @@ local function get_channel_state(channel)
             channel     = channel,
             msg_counter = 0,
             by_user     = {},
+            mods        = {},
         }
     end
 
@@ -289,6 +356,128 @@ local function cleanup_inactive_users(state, now)
             state.by_user[ukey] = nil
         end
     end
+end
+
+-- ============================================================================
+-- MODERATOR & BOT DETECTION
+-- ============================================================================
+
+local function get_current_user_login()
+    if not c2 or not c2.current_account then return nil end
+    local ok, login = pcall(function()
+        local acc = c2.current_account()
+        if acc and acc:is_valid() and not acc:is_anon() then
+            local ok1, v1 = pcall(acc.login, acc)
+            if ok1 and type(v1) == "string" and v1 ~= "" then
+                return v1:lower()
+            end
+            local ok2, v2 = pcall(acc.user_login, acc)
+            if ok2 and type(v2) == "string" and v2 ~= "" then
+                return v2:lower()
+            end
+        end
+        return nil
+    end)
+    if ok and type(login) == "string" and login ~= "" then
+        return login
+    end
+    return nil
+end
+
+local function is_bot_user(user_key)
+    if not user_key or user_key == "" then return false end
+    if KNOWN_BOTS[user_key] then return true end
+    return false
+end
+
+local function check_is_moderator(channel, user_key, msg)
+    -- 1. Streamer / Broadcaster is channel owner
+    local chan_name = get_channel_name(channel)
+    if chan_name and user_key == chan_name then
+        return true
+    end
+
+    -- 2. Check channel state cached mods
+    local state = channel and channel_states[get_channel_key(channel)]
+    if state and state.mods and state.mods[user_key] then
+        return true
+    end
+
+    -- 3. Check elements for moderator / authority badges
+    if msg then
+        local ok, is_mod = pcall(function()
+            local elements = msg:elements()
+            if not elements then return false end
+
+            local el_count = #elements
+            for i = 1, el_count do
+                local el = elements[i]
+                if el then
+                    -- Tooltip check (e.g. "Moderator", "Twitch Channel Moderator", "Broadcaster", "Staff", "Admin")
+                    if type(el.tooltip) == "string" and el.tooltip ~= "" then
+                        local tt = el.tooltip:lower()
+                        if tt:find("moderator", 1, true)
+                           or tt:find("broadcaster", 1, true)
+                           or tt:find("twitch staff", 1, true)
+                           or tt:find("admin", 1, true) then
+                            return true
+                        end
+                    end
+
+                    -- Element flags check
+                    if el.flags and math.type(el.flags) == "integer" and c2 and c2.MessageElementFlag then
+                        local bca = c2.MessageElementFlag.BadgeChannelAuthority
+                        local bga = c2.MessageElementFlag.BadgeGlobalAuthority
+                        local modtools = c2.MessageElementFlag.ModeratorTools
+                        if (bca and (el.flags & bca) ~= 0)
+                           or (bga and (el.flags & bga) ~= 0)
+                           or (modtools and (el.flags & modtools) ~= 0) then
+                            return true
+                        end
+                    end
+                end
+            end
+            return false
+        end)
+
+        if ok and is_mod then
+            if state then
+                if not state.mods then state.mods = {} end
+                state.mods[user_key] = true
+                state.by_user[user_key] = nil
+            end
+            return true
+        end
+    end
+
+    return false
+end
+
+local function is_ignored_user(channel, user_key, msg)
+    if not user_key or user_key == "" then return true end
+
+    -- Custom ignored users (/sg ignore <name>)
+    if custom_ignored[user_key] then
+        return true
+    end
+
+    -- Bots check
+    if CONFIG.IGNORE_BOTS and is_bot_user(user_key) then
+        return true
+    end
+
+    -- Current user account check (self)
+    local my_name = get_current_user_login()
+    if my_name and user_key == my_name then
+        return true
+    end
+
+    -- Moderator / Broadcaster check
+    if CONFIG.IGNORE_MODS and check_is_moderator(channel, user_key, msg) then
+        return true
+    end
+
+    return false
 end
 
 -- ============================================================================
@@ -337,6 +526,7 @@ end
 local function process_incoming_message(channel, user_key, raw_text, user_color, display_name)
     if not channel or not user_key or not raw_text or raw_text == "" then return end
     if raw_text:find("SPAM WARN", 1, true) then return end
+    if is_ignored_user(channel, user_key, nil) then return end
 
     local is_laugh = is_pure_laughter(raw_text)
     local norm_text, words, word_count = normalize_text(raw_text)
@@ -509,8 +699,17 @@ local function register_channel(channel, silent)
         ))
     end
 
-    channel:on_message_appended(function(msg)
+    channel:on_message_appended(function(msg, override_flags)
         if not msg then return end
+
+        -- Skip system, timeout, sub, clear, etc. messages
+        local flags = msg.flags or 0
+        if override_flags and math.type(override_flags) == "integer" then
+            flags = flags | override_flags
+        end
+        if SKIP_MASK ~= 0 and (flags & SKIP_MASK) ~= 0 then
+            return
+        end
 
         local ok, err = pcall(function()
             local user_key = nil
@@ -521,6 +720,11 @@ local function register_channel(channel, silent)
             end
 
             if not user_key or user_key == "" then return end
+
+            -- Ignore bots and moderators/broadcasters
+            if is_ignored_user(channel, user_key, msg) then
+                return
+            end
 
             local raw_text = extract_message_text(msg)
             if raw_text == "" then return end
@@ -606,18 +810,73 @@ local function handle_command(ctx)
             user_count = user_count + 1
             if u.strikes > 0 then flagged_count = flagged_count + 1 end
         end
+        local mod_count = 0
+        if state.mods then
+            for _ in pairs(state.mods) do mod_count = mod_count + 1 end
+        end
         local status_str = state.enabled and "ACTIVE" or "INACTIVE"
 
         channel:add_system_message(string.format(
-            "🛡️ Status: %s (%s) | Monitored users: %d (Flagged: %d) | Threshold: %d%% | Score limit: %d",
-            status_str, chan_label, user_count, flagged_count,
+            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d, Mods cached: %d) | Threshold: %d%% | Limit: %d",
+            status_str, chan_label, user_count, flagged_count, mod_count,
             math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
             CONFIG.SCORE_TRIGGER_THRESHOLD
         ))
+        channel:add_system_message(string.format(
+            "🛡️ Exclusions: Mods/Broadcaster = %s | Bots = %s",
+            CONFIG.IGNORE_MODS and "IGNORED" or "MONITORED",
+            CONFIG.IGNORE_BOTS and "IGNORED" or "MONITORED"
+        ))
+
+    elseif arg == "mods" then
+        local sub = ctx.words and ctx.words[3] and ctx.words[3]:lower() or ""
+        if sub == "off" or sub == "disable" then
+            CONFIG.IGNORE_MODS = false
+            channel:add_system_message("🛡️ Moderator exclusion DISABLED (mods will now be monitored).")
+        elseif sub == "on" or sub == "enable" then
+            CONFIG.IGNORE_MODS = true
+            channel:add_system_message("🛡️ Moderator exclusion ENABLED (mods are ignored).")
+        else
+            channel:add_system_message(string.format("🛡️ Moderator exclusion is currently %s. (/sg mods on|off)", CONFIG.IGNORE_MODS and "ENABLED" or "DISABLED"))
+        end
+
+    elseif arg == "bots" then
+        local sub = ctx.words and ctx.words[3] and ctx.words[3]:lower() or ""
+        if sub == "off" or sub == "disable" then
+            CONFIG.IGNORE_BOTS = false
+            channel:add_system_message("🛡️ Bot exclusion DISABLED (bots will now be monitored).")
+        elseif sub == "on" or sub == "enable" then
+            CONFIG.IGNORE_BOTS = true
+            channel:add_system_message("🛡️ Bot exclusion ENABLED (bots are ignored).")
+        else
+            channel:add_system_message(string.format("🛡️ Bot exclusion is currently %s. (/sg bots on|off)", CONFIG.IGNORE_BOTS and "ENABLED" or "DISABLED"))
+        end
+
+    elseif arg == "ignore" then
+        local target = ctx.words and ctx.words[3] and ctx.words[3]:lower() or ""
+        target = target:gsub("^@", "")
+        if target == "" then
+            channel:add_system_message("🛡️ Usage: /sg ignore <username>")
+        else
+            custom_ignored[target] = true
+            state.by_user[target] = nil
+            channel:add_system_message(string.format("🛡️ Added @%s to Spam Detector ignore list.", target))
+        end
+
+    elseif arg == "unignore" then
+        local target = ctx.words and ctx.words[3] and ctx.words[3]:lower() or ""
+        target = target:gsub("^@", "")
+        if target == "" then
+            channel:add_system_message("🛡️ Usage: /sg unignore <username>")
+        else
+            custom_ignored[target] = nil
+            channel:add_system_message(string.format("🛡️ Removed @%s from Spam Detector ignore list.", target))
+        end
 
     elseif arg == "clear" or arg == "reset" then
         state.by_user = {}
-        channel:add_system_message("🛡️ Spam Detector: Detection history and user scores cleared.")
+        state.mods = {}
+        channel:add_system_message("🛡️ Spam Detector: Detection history, user scores, and mod cache cleared.")
 
     elseif arg == "test" then
         local test_words = {}
@@ -643,7 +902,7 @@ local function handle_command(ctx)
 
     elseif arg == "help" then
         channel:add_system_message(
-            "🛡️ Commands: /sg (toggle) · /sg on · /sg off · /sg status · /sg clear · /sg test <text>"
+            "🛡️ Commands: /sg (toggle) · /sg on|off · /sg status · /sg clear · /sg mods on|off · /sg bots on|off · /sg ignore <user> · /sg test <text>"
         )
 
     else
