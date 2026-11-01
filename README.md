@@ -1,8 +1,8 @@
-# 🛡️ Chatterino SpamDetector Plugin (v1.3.0)
+# 🛡️ Chatterino SpamDetector Plugin (v1.5.0)
 
 Protects Twitch chat from repeated messages with similar text patterns. A lightweight Lua plugin for **Chatterino**.
 
-![Version](https://img.shields.io/badge/Version-1.3.0-blue)
+![Version](https://img.shields.io/badge/Version-1.5.0-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Chatterino](https://img.shields.io/badge/Chatterino-Nightly-orange)
 ![Language](https://img.shields.io/badge/Language-Lua-000080)
@@ -13,7 +13,9 @@ Protects Twitch chat from repeated messages with similar text patterns. A lightw
 
 - **Similarity detection:** Compares messages using Levenshtein distance and word similarity to identify repeated messages with small variations.
 - **Multiple detection criteria:** Looks for repeated similar messages and uses an additional spam score to detect slower spam.
-- **Detection thresholds:** Uses a default similarity threshold of **76%** and a score threshold of **80**.
+- **Auto-attaches on startup:** Automatically starts monitoring in all open chat tabs when Chatterino starts.
+- **Excludes Moderators, Broadcasters & Bots:** Ignores channel moderators, broadcasters, own messages, and common Twitch bots by default.
+- **Fresh sessions:** Starts completely fresh every time Chatterino opens without storing chat history across sessions.
 - **Per-chat controls:** Enable or disable protection separately in each chat tab.
 - **Chat warnings:** Displays a highlighted warning with the user's name and similarity score when spam is detected.
 
@@ -59,30 +61,21 @@ Download and extract a recent Chatterino Nightly build. The regular stable versi
 
 ## 🎮 Usage & Commands
 
-The Spam Detector is configured separately for each chat tab. After loading the plugin, activate it in each tab with `/sg on` or `/spamguard on`. Repeat this after restarting Chatterino or reloading the plugin.
+The plugin auto-attaches silently to all open chat tabs upon startup. You can configure or toggle it at any time using:
 
 | Command | Description |
 | --- | --- |
-| `/sg on` or `/spamguard on` | Enables the Spam Detector for this chat and saves it permanently. |
-| `/sg off` or `/spamguard off` | Disables the Spam Detector for this chat and updates saved settings. |
 | `/sg` or `/spamguard` | Toggles the Spam Detector in the current chat tab. |
-| `/sg status` or `/spamguard status` | Shows status, monitored users, thresholds, and all saved active channels. |
-| `/sg clear` or `/spamguard clear` | Clears the detection history for the current chat tab. |
+| `/sg on` or `/spamguard on` | Enables the Spam Detector for the current chat tab. |
+| `/sg off` or `/spamguard off` | Disables the Spam Detector for the current chat tab. |
+| `/sg status` or `/spamguard status` | Shows status, monitored users, flagged spammers, cached mods, and exclusions. |
+| `/sg clear` or `/spamguard clear` | Clears the detection history, scores, and mod cache for the current chat tab. |
+| `/sg mods on` or `/sg mods off` | Toggles moderator and broadcaster exclusion (default: `on`). |
+| `/sg bots on` or `/sg bots off` | Toggles Twitch bot exclusion (default: `on`). |
+| `/sg ignore <user>` | Manually adds a user to the ignore list. |
+| `/sg unignore <user>` | Removes a user from the ignore list. |
 | `/sg test <text>` or `/spamguard test <text>` | Sends a test message through the detector. |
 | `/sg help` or `/spamguard help` | Shows a brief command summary in chat. |
-
----
-
-## 📦 Creating a release
-
-Maintainers can create a release by updating the version in `info.json`, pushing the change to GitHub, and creating a matching version tag. The version and tag must match, for example `1.2.1` and `v1.2.1`.
-
-```powershell
-git tag v1.2.1
-git push origin v1.2.1
-```
-
-GitHub Actions will automatically create the release with generated release notes and the `SpamDetector.zip` file. The ZIP contains the `SpamDetector` plugin folder and can be extracted directly into `%APPDATA%\Chatterino2\Plugins`.
 
 ---
 
