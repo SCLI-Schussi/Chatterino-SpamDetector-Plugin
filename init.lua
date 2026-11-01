@@ -1,5 +1,5 @@
 -- ============================================================================
--- SpamDetector v1.5.1
+-- SpamDetector v1.5.2
 -- ============================================================================
 
 local CONFIG = {
@@ -17,7 +17,7 @@ local CONFIG = {
 
 local channel_states      = {}
 local registered_channels = {}
-local custom_ignored       = {}
+local custom_ignored       = {}  -- global ignore list: custom_ignored[login] = true
 
 -- ============================================================================
 -- KNOWN BOTS & SYSTEM MESSAGE MASKS
@@ -311,7 +311,7 @@ local function get_channel_state(channel)
             channel     = channel,
             msg_counter = 0,
             by_user     = {},
-            mods        = {},
+            mods        = {},  -- per-channel manual mod/exempt cache: mods[login] = true
         }
     end
 
@@ -390,74 +390,29 @@ local function is_bot_user(user_key)
     return false
 end
 
-local function check_is_moderator(channel, user_key, msg)
-    -- 1. Streamer / Broadcaster is channel owner
+local function check_is_moderator(channel, user_key)
+    -- 1. Broadcaster / channel owner: always exempt
     local chan_name = get_channel_name(channel)
     if chan_name and user_key == chan_name then
         return true
     end
 
-    -- 2. Check channel state cached mods
+    -- 2. Global custom ignore list (added via /sg ignore)
+    if custom_ignored[user_key] then
+        return true
+    end
+
+    -- 3. Per-channel manual mod cache (added via /sg mod add)
     local state = channel and channel_states[get_channel_key(channel)]
     if state and state.mods and state.mods[user_key] then
         return true
     end
 
-    -- 3. Check elements for actual moderator badges (strictly before username)
-    if msg then
-        local ok, is_mod = pcall(function()
-            local elements = msg:elements()
-            if not elements then return false end
-
-            local el_count = #elements
-            for i = 1, el_count do
-                local el = elements[i]
-                if el then
-                    -- Stop as soon as we reach the username or chat text
-                    if el.flags and math.type(el.flags) == "integer" and c2 and c2.MessageElementFlag and c2.MessageElementFlag.Username then
-                        if (el.flags & c2.MessageElementFlag.Username) ~= 0 then
-                            break
-                        end
-                    end
-                    if el.words and #el.words > 0 then
-                        break
-                    end
-
-                    -- Check tooltip on badge elements
-                    if type(el.tooltip) == "string" and el.tooltip ~= "" then
-                        local tt = el.tooltip:lower()
-                        if tt:find("moderator", 1, true)
-                           or tt:find("lead mod", 1, true)
-                           or tt:find("twitch staff", 1, true)
-                           or tt:find("admin", 1, true) then
-                            return true
-                        end
-                    end
-                end
-            end
-            return false
-        end)
-
-        if ok and is_mod then
-            if state then
-                if not state.mods then state.mods = {} end
-                state.mods[user_key] = true
-                state.by_user[user_key] = nil
-            end
-            return true
-        end
-    end
-
     return false
 end
 
-local function is_ignored_user(channel, user_key, msg)
+local function is_ignored_user(channel, user_key)
     if not user_key or user_key == "" then return true end
-
-    -- Custom ignored users (/sg ignore <name>)
-    if custom_ignored[user_key] then
-        return true
-    end
 
     -- Bots check
     if CONFIG.IGNORE_BOTS and is_bot_user(user_key) then
@@ -471,7 +426,7 @@ local function is_ignored_user(channel, user_key, msg)
     end
 
     -- Moderator / Broadcaster check
-    if CONFIG.IGNORE_MODS and check_is_moderator(channel, user_key, msg) then
+    if CONFIG.IGNORE_MODS and check_is_moderator(channel, user_key) then
         return true
     end
 
@@ -524,7 +479,7 @@ end
 local function process_incoming_message(channel, user_key, raw_text, user_color, display_name)
     if not channel or not user_key or not raw_text or raw_text == "" then return end
     if raw_text:find("SPAM WARN", 1, true) then return end
-    if is_ignored_user(channel, user_key, nil) then return end
+    if is_ignored_user(channel, user_key) then return end
 
     local is_laugh = is_pure_laughter(raw_text)
     local norm_text, words, word_count = normalize_text(raw_text)
@@ -719,8 +674,8 @@ local function register_channel(channel, silent)
 
             if not user_key or user_key == "" then return end
 
-            -- Ignore bots and moderators/broadcasters
-            if is_ignored_user(channel, user_key, msg) then
+            -- Ignore bots, self, broadcaster, and manually exempted users
+            if is_ignored_user(channel, user_key) then
                 return
             end
 
@@ -808,27 +763,89 @@ local function handle_command(ctx)
             user_count = user_count + 1
             if u.strikes > 0 then flagged_count = flagged_count + 1 end
         end
+
+        -- Count per-channel cached mods
         local mod_names = {}
         if state.mods then
             for m in pairs(state.mods) do
                 mod_names[#mod_names + 1] = "@" .. m
             end
         end
-        local mods_display = #mod_names > 0 and table.concat(mod_names, ", ") or "none"
-        local status_str = state.enabled and "ACTIVE" or "INACTIVE"
+        -- Count global ignores
+        local global_ignore_count = 0
+        for _ in pairs(custom_ignored) do
+            global_ignore_count = global_ignore_count + 1
+        end
+
+        local mods_display   = #mod_names > 0 and table.concat(mod_names, ", ") or "none"
+        local status_str     = state.enabled and "ACTIVE" or "INACTIVE"
+        local broadcaster_kv = chan_name ~= "this chat" and ("broadcaster=@" .. chan_name) or ""
 
         channel:add_system_message(string.format(
-            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d) | Cached mods (%d): %s",
+            "🛡️ Status: %s (%s) | Monitored: %d (Flagged: %d) | Channel mods (%d): %s",
             status_str, chan_label, user_count, flagged_count,
             #mod_names, mods_display
         ))
         channel:add_system_message(string.format(
-            "🛡️ Exclusions: Mods/Broadcaster = %s | Bots = %s | Threshold: %d%% | Limit: %d",
-            CONFIG.IGNORE_MODS and "IGNORED" or "MONITORED",
-            CONFIG.IGNORE_BOTS and "IGNORED" or "MONITORED",
+            "🛡️ Exclusions: Mods=%s | Bots=%s | Global ignores: %d | Threshold: %d%% | Limit: %d",
+            CONFIG.IGNORE_MODS and "ON" or "OFF",
+            CONFIG.IGNORE_BOTS and "ON" or "OFF",
+            global_ignore_count,
             math.floor(CONFIG.SIMILARITY_THRESHOLD * 100),
             CONFIG.SCORE_TRIGGER_THRESHOLD
         ))
+        if broadcaster_kv ~= "" then
+            channel:add_system_message("🛡️ Auto-exempt: " .. broadcaster_kv .. " (broadcaster always skipped)")
+        end
+
+    elseif arg == "mod" then
+        -- /sg mod add <name>   → add to per-channel mod cache
+        -- /sg mod remove <name> / /sg mod del <name>  → remove from mod cache
+        -- /sg mod list         → list cached mods for this channel
+        local sub    = ctx.words and ctx.words[3] and ctx.words[3]:lower() or ""
+        local target = ctx.words and ctx.words[4] and ctx.words[4]:lower() or ""
+        target = target:gsub("^@", "")
+
+        if sub == "add" then
+            if target == "" then
+                channel:add_system_message("🛡️ Usage: /sg mod add <username>")
+            else
+                if not state.mods then state.mods = {} end
+                state.mods[target] = true
+                state.by_user[target] = nil  -- clear any pending scores
+                channel:add_system_message(string.format(
+                    "🛡️ @%s added to mod exempt list for %s. They will be ignored by SpamDetector.",
+                    target, chan_label
+                ))
+            end
+
+        elseif sub == "remove" or sub == "del" or sub == "rm" then
+            if target == "" then
+                channel:add_system_message("🛡️ Usage: /sg mod remove <username>")
+            else
+                if state.mods then state.mods[target] = nil end
+                channel:add_system_message(string.format(
+                    "🛡️ @%s removed from mod exempt list for %s.",
+                    target, chan_label
+                ))
+            end
+
+        elseif sub == "list" or sub == "" then
+            local mod_list = {}
+            if state.mods then
+                for m in pairs(state.mods) do
+                    mod_list[#mod_list + 1] = "@" .. m
+                end
+            end
+            local display = #mod_list > 0 and table.concat(mod_list, ", ") or "none"
+            channel:add_system_message(string.format(
+                "🛡️ Channel mod exempt list for %s (%d): %s",
+                chan_label, #mod_list, display
+            ))
+            channel:add_system_message("🛡️ Tip: /sg mod add <name> · /sg mod remove <name>")
+        else
+            channel:add_system_message("🛡️ Usage: /sg mod add|remove|list [username]")
+        end
 
     elseif arg == "mods" then
         local sub = ctx.words and ctx.words[3] and ctx.words[3]:lower() or ""
@@ -839,7 +856,10 @@ local function handle_command(ctx)
             CONFIG.IGNORE_MODS = true
             channel:add_system_message("🛡️ Moderator exclusion ENABLED (mods are ignored).")
         else
-            channel:add_system_message(string.format("🛡️ Moderator exclusion is currently %s. (/sg mods on|off)", CONFIG.IGNORE_MODS and "ENABLED" or "DISABLED"))
+            channel:add_system_message(string.format(
+                "🛡️ Moderator exclusion is currently %s. (/sg mods on|off)",
+                CONFIG.IGNORE_MODS and "ENABLED" or "DISABLED"
+            ))
         end
 
     elseif arg == "bots" then
@@ -851,7 +871,10 @@ local function handle_command(ctx)
             CONFIG.IGNORE_BOTS = true
             channel:add_system_message("🛡️ Bot exclusion ENABLED (bots are ignored).")
         else
-            channel:add_system_message(string.format("🛡️ Bot exclusion is currently %s. (/sg bots on|off)", CONFIG.IGNORE_BOTS and "ENABLED" or "DISABLED"))
+            channel:add_system_message(string.format(
+                "🛡️ Bot exclusion is currently %s. (/sg bots on|off)",
+                CONFIG.IGNORE_BOTS and "ENABLED" or "DISABLED"
+            ))
         end
 
     elseif arg == "ignore" then
@@ -861,8 +884,14 @@ local function handle_command(ctx)
             channel:add_system_message("🛡️ Usage: /sg ignore <username>")
         else
             custom_ignored[target] = true
-            state.by_user[target] = nil
-            channel:add_system_message(string.format("🛡️ Added @%s to Spam Detector ignore list.", target))
+            -- Also clear from all channel user states
+            for _, cs in pairs(channel_states) do
+                cs.by_user[target] = nil
+            end
+            channel:add_system_message(string.format(
+                "🛡️ @%s added to GLOBAL ignore list (ignored in all channels).",
+                target
+            ))
         end
 
     elseif arg == "unignore" then
@@ -872,12 +901,15 @@ local function handle_command(ctx)
             channel:add_system_message("🛡️ Usage: /sg unignore <username>")
         else
             custom_ignored[target] = nil
-            channel:add_system_message(string.format("🛡️ Removed @%s from Spam Detector ignore list.", target))
+            channel:add_system_message(string.format(
+                "🛡️ @%s removed from GLOBAL ignore list.",
+                target
+            ))
         end
 
     elseif arg == "clear" or arg == "reset" then
         state.by_user = {}
-        state.mods = {}
+        state.mods    = {}
         channel:add_system_message("🛡️ Spam Detector: Detection history, user scores, and mod cache cleared.")
 
     elseif arg == "test" then
@@ -904,7 +936,16 @@ local function handle_command(ctx)
 
     elseif arg == "help" then
         channel:add_system_message(
-            "🛡️ Commands: /sg (toggle) · /sg on|off · /sg status · /sg clear · /sg mods on|off · /sg bots on|off · /sg ignore <user> · /sg test <text>"
+            "🛡️ Commands: /sg (toggle) · /sg on|off · /sg status · /sg clear"
+        )
+        channel:add_system_message(
+            "🛡️ Mod exempt: /sg mod add <user> · /sg mod remove <user> · /sg mod list"
+        )
+        channel:add_system_message(
+            "🛡️ Global ignore: /sg ignore <user> · /sg unignore <user>"
+        )
+        channel:add_system_message(
+            "🛡️ Toggles: /sg mods on|off · /sg bots on|off · /sg test [text]"
         )
 
     else
